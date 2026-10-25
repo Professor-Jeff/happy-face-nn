@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Happy or Not? — Teach a Neural Network to Read Faces</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1c1e21; --muted: #5b6270;
+    --line: #e5e7eb; --accent: #2563eb; --on-accent: #ffffff;
+    --ok: #15803d; --on-ok: #ffffff; --okbg: #dcfce7;
+    --bad: #dc2626; --badbg: #fee2e2; --warn: #b45309;
+    --junk: #6d28d9; --junkbg: #ede9fe;
+    --pos: #2563eb; --neg: #dc2626; --focus: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #181b22; --ink: #e7e9ee; --muted: #a3a9b5;
+      --line: #2c313b; --accent: #7cb4ff; --on-accent: #0f1115;
+      --ok: #5ddc8a; --on-ok: #04230f; --okbg: #15402a;
+      --bad: #ff8a80; --badbg: #4a1d1d; --warn: #f5b84a;
+      --junk: #c9b8ff; --junkbg: #342a5c;
+      --pos: #7cb4ff; --neg: #ff8a80; --focus: #a7cbff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 72px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; line-height: 1.45; }
+  .sub a { color: var(--accent); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-top: 16px; }
+  .card h2 { font-size: 1rem; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .card h3 { font-size: .95rem; margin: 18px 0 8px; }
+  .note { font-size: .85rem; color: var(--muted); line-height: 1.45; margin: 6px 0; }
+  .status { font-size: 1.05rem; margin: 6px 0 12px; min-height: 1.4em; }
+  .status.untrained { color: var(--warn); font-weight: 600; }
+  .status.done { color: var(--ok); font-weight: 600; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+  @media (max-width: 600px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat { background: var(--bg); border-radius: 8px; padding: 10px; }
+  .stat .k { font-size: .75rem; color: var(--muted); text-transform: uppercase; }
+  .stat .v { font-size: 1.3rem; font-variant-numeric: tabular-nums; }
+  button { font: inherit; padding: 10px 18px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; margin: 0 8px 8px 0; }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  progress { width: 100%; height: 10px; margin-top: 4px; }
+  details { margin-top: 16px; }
+  summary { cursor: pointer; color: var(--muted); }
+  code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--bg); padding: 10px 12px; border-radius: 8px; font-size: .85rem; overflow-x: auto; line-height: 1.4; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 700px) { .two { grid-template-columns: 1fr; } }
+  canvas.face { image-rendering: pixelated; image-rendering: crisp-edges; background: #fff; border-radius: 4px; display: block; }
+  /* step 1: the gallery of faces */
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 10px; margin: 12px 0; }
+  .tile { position: relative; margin: 0; padding: 5px; border: 2px solid var(--line); border-radius: 10px; background: var(--card); cursor: pointer; }
+  .tile canvas.face { width: 100%; aspect-ratio: 1; }
+  .tile:hover { border-color: var(--muted); }
+  .tile[aria-pressed="true"] { border-color: var(--ok); background: var(--okbg); }
+  .tile .badge { display: none; position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; border-radius: 50%; background: var(--ok); color: var(--on-ok); font-size: 15px; font-weight: 700; line-height: 24px; text-align: center; }
+  .tile[aria-pressed="true"] .badge { display: block; }
+  .pickbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+  .pickbar .count { font-weight: 600; font-size: 1.05rem; }
+  /* step 2 & 3: result tiles */
+  .strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 10px; margin: 10px 0 4px; }
+  .ttile { border: 2px solid var(--line); border-radius: 10px; padding: 6px; text-align: center; font-size: .74rem; line-height: 1.3; background: var(--card); }
+  .ttile canvas.face { width: 100%; aspect-ratio: 1; }
+  .ttile .bar { height: 7px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 5px 0 4px; }
+  .ttile .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width .1s; }
+  .ttile .pred { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ttile .truth { color: var(--muted); }
+  .ttile.right { border-color: var(--ok); background: var(--okbg); }
+  .ttile.wrong { border-color: var(--bad); background: var(--badbg); }
+  .ttile.junk { border-color: var(--junk); background: var(--junkbg); }
+  .ttile.junk .truth { color: var(--junk); font-weight: 600; }
+  .legend { font-size: .8rem; color: var(--muted); margin-top: 8px; }
+  .legend b { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin: 0 4px 0 10px; border: 2px solid; }
+  .legend b.r { border-color: var(--ok); background: var(--okbg); } .legend b.w { border-color: var(--bad); background: var(--badbg); } .legend b.j { border-color: var(--junk); background: var(--junkbg); }
+  canvas#curve { width: 100%; height: 190px; display: block; background: var(--bg); border-radius: 8px; }
+  .curveKey { font-size: .8rem; color: var(--muted); margin-top: 6px; }
+  .curveKey b { display: inline-block; width: 22px; height: 3px; vertical-align: middle; margin-right: 6px; }
+  .splitTbl { border-collapse: collapse; font-size: .92rem; margin: 8px 0 12px; width: 100%; max-width: 520px; }
+  .splitTbl th, .splitTbl td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .splitTbl th { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .splitTbl td.n { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .splitTbl tr.tot td { font-weight: 700; }
+  /* step 4: draw your own */
+  .draw { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; width: 100%; max-width: 300px; padding: 4px; background: var(--line); border-radius: 8px; touch-action: none; user-select: none; }
+  .draw button { margin: 0; padding: 0; aspect-ratio: 1; border: 0; border-radius: 2px; background: #fff; cursor: crosshair; }
+  .draw button[aria-pressed="true"] { background: #111; }
+  .draw button:focus-visible { outline-offset: 0; z-index: 1; }
+  .verdict { font-size: 1.6rem; font-weight: 700; margin: 6px 0 4px; min-height: 1.4em; }
+  .verdict.yes { color: var(--ok); } .verdict.no { color: var(--muted); }
+  .bigbar { height: 18px; background: var(--line); border-radius: 6px; overflow: hidden; margin: 6px 0 10px; position: relative; }
+  .bigbar > div { height: 100%; background: var(--accent); width: 0%; transition: width .12s; }
+  .bigbar::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--muted); }
+  /* network diagram pop-up */
+  dialog { border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; box-shadow: 0 12px 32px rgba(0,0,0,.25); color: var(--ink); background: var(--card); }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  dialog h3 { margin: 0 0 10px; font-size: 1.05rem; }
+  #netDialog { max-width: 860px; width: calc(100vw - 32px); }
+  #netDialog svg { width: 100%; height: auto; display: block; background: var(--bg); border-radius: 8px; color: var(--ink); }
+  #netDialog svg text { fill: currentColor; } #netDialog svg text.m { fill: var(--muted); }
+  #netDialog .netNote { font-size: .85rem; color: var(--muted); margin: 10px 0 0; line-height: 1.45; }
+  #netDialog .netNote b.sw { display: inline-block; width: 22px; height: 3px; vertical-align: middle; margin: 0 4px 0 2px; }
+  #netDialog .btns { text-align: right; margin-top: 12px; }
+  /* QR code for presentations (lower left) */
+  #qrBtn { position: fixed; left: 16px; bottom: 16px; z-index: 20; margin: 0; font-size: .85rem; padding: 8px 14px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+  #qrPanel { position: fixed; left: 16px; bottom: 64px; z-index: 20; display: none; flex-direction: column; align-items: center; gap: 8px; padding: 16px 20px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.2); }
+  #qrPanel.open { display: flex; }
+  #qrPanel .qrTitle { font-size: 1rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  #qrPanel svg { width: 220px; height: 220px; border: 8px solid #fff; background: #fff; display: block; }
+  #qrPanel .qrUrl { font-size: .85rem; color: var(--muted); letter-spacing: .03em; }
+  @media (max-width: 700px) { #qrPanel svg { width: 160px; height: 160px; } }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Happy or not? Teach a neural network to read faces</h1>
+  <p class="sub">100 inputs (a 10×10 picture) → 8 hidden neurons → 1 output, the same kind of network as
+    <a href="https://professor-jeff.github.io/pick-activity/">Pick Activity</a> and <a href="https://professor-jeff.github.io/tictactoe-nn/">Tic-Tac-Toe</a>.
+    This time there are no rules and no perfect player to copy. <b>You</b> make the training data: pick the faces you think are happy,
+    and the network learns <i>your</i> definition. Then we test it on faces it has never seen.</p>
+
+  <!-- ============================ STEP 1 ============================ -->
+  <div class="card">
+    <h2>1 · Pick the happy faces</h2>
+    <p class="note">Press every face you'd call <b>happy</b>. Everything you pick becomes a training example labeled <i>happy</i>; faces you skip become <i>not happy</i>.
+      Pick a handful, not all of them: some happy faces must stay unpicked so we have unseen ones to test on.
+      Arrow keys move between faces, Space or Enter picks.</p>
+    <div class="gallery" id="gallery" role="group" aria-label="Gallery of faces. Press a face to mark it happy."></div>
+    <div class="pickbar">
+      <span class="count" id="pickCount" role="status">0 picked</span>
+      <button class="primary" id="doneBtn" disabled title="Lock in your picks and split the faces into a training set and a test set.">Done picking</button>
+      <button id="newFacesBtn" title="Throw these faces away and draw a fresh gallery. Clears picks and weights too.">New faces</button>
+    </div>
+  </div>
+
+  <!-- ============================ STEP 2 ============================ -->
+  <div class="card" id="trainCard">
+    <h2>2 · Split the data, then train</h2>
+    <div id="splitWait" class="note">Finish step 1 first. When you press <b>Done picking</b>, the faces are split into a <b>training set</b> (what the network learns from) and a <b>test set</b> (faces it never sees until the exam).</div>
+    <div id="splitBody" hidden>
+      <table class="splitTbl" aria-label="How the faces were split">
+        <thead><tr><th></th><th>Training set</th><th>Test set</th></tr></thead>
+        <tbody>
+          <tr><td>Happy</td><td class="n" id="trHappy">0</td><td class="n" id="teHappy">0</td></tr>
+          <tr><td>Not happy</td><td class="n" id="trNot">0</td><td class="n" id="teNot">0</td></tr>
+          <tr><td>Junk images</td><td class="n">0</td><td class="n" id="teJunk">0</td></tr>
+          <tr class="tot"><td>Total</td><td class="n" id="trTot">0</td><td class="n" id="teTot">0</td></tr>
+        </tbody>
+      </table>
+      <p class="note" id="splitNote"></p>
+
+      <div id="status" class="status untrained" role="status">Untrained — weights are random</div>
+      <div class="stats">
+        <div class="stat" title="One epoch = one pass through every training face. The network sees the same examples 300 times, nudging its weights a little each pass."><div class="k">Epoch</div><div class="v" id="epoch">0</div></div>
+        <div class="stat" title="Binary cross-entropy loss on the training set: how wrong the network is, on average. Confidently right is near 0, confidently wrong is large."><div class="k">Loss</div><div class="v" id="loss">—</div></div>
+        <div class="stat" title="How many training faces it currently gets right. With this few examples it can usually reach 100% by memorizing them."><div class="k">Training accuracy</div><div class="v" id="trainAcc">—</div></div>
+        <div class="stat" title="How many TEST faces it gets right: faces it has never seen. This is the number that matters. Junk images are not counted here."><div class="k">Test accuracy (unseen)</div><div class="v" id="testAcc">—</div></div>
+      </div>
+      <button class="primary" id="trainBtn" title="Run 300 passes of gradient descent over the training set. About 3 seconds.">Train (300 epochs)</button>
+      <button id="netBtn" title="Open a live picture of the network: the drawn face from step 4 going in, each hidden neuron's 100 weights as a heatmap, and the probability coming out.">Show the network</button>
+      <button id="resetBtn" title="Keep these faces but clear your picks and throw away the weights.">Start over</button>
+      <progress id="prog" value="0" max="300" aria-label="Training progress"></progress>
+
+      <div class="two" style="margin-top:14px">
+        <div>
+          <h3 style="margin-top:0">Learning curves</h3>
+          <canvas id="curve" width="800" height="380" role="img" aria-label="Learning curves: training loss falls as epochs go by; accuracy on the unseen test faces is drawn alongside it."></canvas>
+          <div class="curveKey"><b style="background:var(--accent)"></b>training loss (0–1 scale, left) &nbsp; <b style="background:var(--ok)"></b>test accuracy (0–100%, right)</div>
+        </div>
+        <div>
+          <h3 style="margin-top:0">The training faces, as the network sees them right now</h3>
+          <p class="note" style="margin-top:0">Up to 12 of the training faces with the network's current “happy” probability. Watch them move while it trains.</p>
+          <div class="strip" id="trainStrip" role="list" aria-label="Training faces with live predictions"></div>
+        </div>
+      </div>
+
+      <details>
+        <summary>The math, in one screen</summary>
+        <pre>// forward: 100 pixels → 8 hidden neurons → 1 probability
+z1[j] = b1[j] + Σ_i  x[i] · W1[i][j]      a1[j] = max(0, z1[j])      // relu
+z2    = b2    + Σ_j a1[j] · W2[j]          p     = 1 / (1 + e^(−z2))    // sigmoid
+
+// loss: binary cross-entropy. y = 1 for happy, 0 for not
+loss  = −( y · log p + (1 − y) · log(1 − p) )
+
+// backward: the same "predicted minus correct" line as the other two demos
+dz2   = p − y
+dW2[j] += a1[j] · dz2          dz1[j] = (z1[j] > 0) ? dz2 · W2[j] : 0
+dW1[i][j] += x[i] · dz1[j]     then every weight -= learning rate × its gradient</pre>
+      </details>
+    </div>
+  </div>
+
+  <!-- ============================ STEP 3 ============================ -->
+  <div class="card">
+    <h2>3 · The exam: faces it has never seen</h2>
+    <div id="testWait" class="note">Finish steps 1 and 2. Every face here is one the network was <b>not</b> trained on, so this is the real measure of whether it learned “happy” or just memorized your picks.</div>
+    <div id="testBody" hidden>
+      <div class="status" id="testStatus" role="status"></div>
+      <div class="strip" id="testStrip" role="list" aria-label="Test faces with the network's prediction and the true label"></div>
+      <h3>Junk images</h3>
+      <p class="note" style="margin-top:0">These were never in the gallery and are not faces at all. The network has to say <i>something</i> about them; notice that it never says “I don't know.” They are not counted in the accuracy above.</p>
+      <div class="strip" id="junkStrip" role="list" aria-label="Junk images with the network's prediction"></div>
+      <div class="legend">Key: <b class="r"></b>network correct <b class="w"></b>network wrong <b class="j"></b>junk (no right answer). “Truth” is the expression the face generator drew, which may not match your taste.</div>
+    </div>
+  </div>
+
+  <!-- ============================ STEP 4 ============================ -->
+  <div class="card">
+    <h2>4 · Draw a face, see what it thinks</h2>
+    <div class="two">
+      <div>
+        <p class="note" style="margin-top:0">Click or drag to paint pixels. This face is only for <b>testing</b>: it never goes into the training set. Arrow keys move, Space toggles.</p>
+        <div class="draw" id="draw" role="group" aria-label="Drawing grid, 10 by 10 pixels"></div>
+        <div style="margin-top:10px">
+          <button id="drawClear">Clear</button>
+          <button id="drawHappy" title="Load a brand-new happy face from the generator (not one from the gallery).">Random happy</button>
+          <button id="drawSad" title="Load a brand-new sad face.">Random sad</button>
+          <button id="drawNeutral" title="Load a brand-new neutral face.">Random neutral</button>
+        </div>
+      </div>
+      <div>
+        <h3 style="margin-top:0">Network says</h3>
+        <div class="verdict" id="verdict" role="status">—</div>
+        <div class="bigbar" aria-hidden="true"><div id="verdictFill"></div></div>
+        <p class="note" id="verdictNote"></p>
+        <p class="note">Try it: start from a random happy face and erase one corner of the mouth. Draw a mouth with no eyes. Draw just the eyes. Scribble. Where does your definition of happy and the network's come apart?</p>
+      </div>
+    </div>
+  </div>
+
+  <p class="sub" style="margin-top:18px">
+    Things to notice: the network can score 100% on the training faces and still miss on the exam. If you only picked faces with big grins, narrow smiles may fail.
+    Junk gets a confident answer either way. And the <b>Show the network</b> picture tells you which pixels each hidden neuron is watching: usually the mouth corners.
+  </p>
+</div>
+
+<dialog id="netDialog" aria-labelledby="netTitle">
+  <h3 id="netTitle">Inside the network, right now</h3>
+  <div id="netSvgWrap"></div>
+  <p class="netNote" id="netNote"></p>
+  <div class="btns"><button id="netClose" class="primary">Close</button></div>
+</dialog>
+
+<button id="qrBtn" type="button" aria-expanded="false" aria-controls="qrPanel" title="Show a QR code so students can open this page on their phones.">Show QR code</button>
+<div id="qrPanel" role="dialog" aria-label="QR code for this page">
+  <div class="qrTitle">Scan to try it</div>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 29 29" shape-rendering="crispEdges" role="img" aria-label="QR code for https://professor-jeff.github.io/happy-face-nn/"><rect width="29" height="29" fill="#fff"/><path fill="#000" d="M0 0h7v1h-7zM9 0h1v1h-1zM14 0h1v1h-1zM16 0h4v1h-4zM22 0h7v1h-7zM0 1h1v1h-1zM6 1h1v1h-1zM8 1h2v1h-2zM11 1h2v1h-2zM15 1h1v1h-1zM17 1h1v1h-1zM22 1h1v1h-1zM28 1h1v1h-1zM0 2h1v1h-1zM2 2h3v1h-3zM6 2h1v1h-1zM9 2h3v1h-3zM15 2h1v1h-1zM18 2h3v1h-3zM22 2h1v1h-1zM24 2h3v1h-3zM28 2h1v1h-1zM0 3h1v1h-1zM2 3h3v1h-3zM6 3h1v1h-1zM8 3h2v1h-2zM11 3h1v1h-1zM13 3h5v1h-5zM22 3h1v1h-1zM24 3h3v1h-3zM28 3h1v1h-1zM0 4h1v1h-1zM2 4h3v1h-3zM6 4h1v1h-1zM10 4h1v1h-1zM12 4h3v1h-3zM16 4h1v1h-1zM18 4h3v1h-3zM22 4h1v1h-1zM24 4h3v1h-3zM28 4h1v1h-1zM0 5h1v1h-1zM6 5h1v1h-1zM8 5h1v1h-1zM10 5h1v1h-1zM15 5h3v1h-3zM22 5h1v1h-1zM28 5h1v1h-1zM0 6h7v1h-7zM8 6h1v1h-1zM10 6h1v1h-1zM12 6h1v1h-1zM14 6h1v1h-1zM16 6h1v1h-1zM18 6h1v1h-1zM20 6h1v1h-1zM22 6h7v1h-7zM12 7h1v1h-1zM14 7h2v1h-2zM19 7h2v1h-2zM0 8h5v1h-5zM6 8h5v1h-5zM12 8h2v1h-2zM15 8h1v1h-1zM17 8h1v1h-1zM21 8h1v1h-1zM23 8h1v1h-1zM25 8h1v1h-1zM27 8h1v1h-1zM0 9h4v1h-4zM5 9h1v1h-1zM8 9h2v1h-2zM13 9h1v1h-1zM16 9h9v1h-9zM28 9h1v1h-1zM1 10h1v1h-1zM5 10h2v1h-2zM8 10h2v1h-2zM11 10h2v1h-2zM14 10h2v1h-2zM18 10h1v1h-1zM20 10h1v1h-1zM1 11h1v1h-1zM5 11h1v1h-1zM7 11h1v1h-1zM9 11h3v1h-3zM14 11h2v1h-2zM20 11h1v1h-1zM23 11h3v1h-3zM27 11h1v1h-1zM1 12h2v1h-2zM5 12h2v1h-2zM9 12h1v1h-1zM11 12h4v1h-4zM17 12h1v1h-1zM25 12h2v1h-2zM4 13h2v1h-2zM9 13h2v1h-2zM12 13h1v1h-1zM16 13h1v1h-1zM19 13h2v1h-2zM22 13h3v1h-3zM28 13h1v1h-1zM0 14h2v1h-2zM4 14h1v1h-1zM6 14h2v1h-2zM13 14h4v1h-4zM21 14h1v1h-1zM23 14h1v1h-1zM25 14h2v1h-2zM1 15h3v1h-3zM5 15h1v1h-1zM9 15h1v1h-1zM11 15h1v1h-1zM16 15h1v1h-1zM18 15h2v1h-2zM22 15h2v1h-2zM27 15h1v1h-1zM0 16h1v1h-1zM2 16h1v1h-1zM4 16h5v1h-5zM10 16h5v1h-5zM17 16h1v1h-1zM19 16h1v1h-1zM25 16h2v1h-2zM0 17h4v1h-4zM8 17h2v1h-2zM11 17h2v1h-2zM17 17h4v1h-4zM22 17h3v1h-3zM26 17h1v1h-1zM28 17h1v1h-1zM0 18h1v1h-1zM2 18h1v1h-1zM4 18h1v1h-1zM6 18h1v1h-1zM10 18h1v1h-1zM12 18h1v1h-1zM15 18h2v1h-2zM18 18h1v1h-1zM20 18h2v1h-2zM26 18h1v1h-1zM0 19h1v1h-1zM2 19h4v1h-4zM7 19h1v1h-1zM10 19h2v1h-2zM14 19h1v1h-1zM16 19h1v1h-1zM18 19h1v1h-1zM20 19h1v1h-1zM22 19h1v1h-1zM24 19h1v1h-1zM27 19h1v1h-1zM0 20h1v1h-1zM2 20h5v1h-5zM8 20h1v1h-1zM10 20h5v1h-5zM17 20h1v1h-1zM19 20h6v1h-6zM26 20h3v1h-3zM8 21h2v1h-2zM11 21h1v1h-1zM16 21h1v1h-1zM20 21h1v1h-1zM24 21h5v1h-5zM0 22h7v1h-7zM8 22h1v1h-1zM10 22h1v1h-1zM12 22h2v1h-2zM15 22h2v1h-2zM19 22h2v1h-2zM22 22h1v1h-1zM24 22h3v1h-3zM0 23h1v1h-1zM6 23h1v1h-1zM9 23h1v1h-1zM11 23h1v1h-1zM14 23h2v1h-2zM20 23h1v1h-1zM24 23h1v1h-1zM28 23h1v1h-1zM0 24h1v1h-1zM2 24h3v1h-3zM6 24h1v1h-1zM8 24h1v1h-1zM10 24h5v1h-5zM17 24h1v1h-1zM20 24h5v1h-5zM26 24h1v1h-1zM28 24h1v1h-1zM0 25h1v1h-1zM2 25h3v1h-3zM6 25h1v1h-1zM8 25h2v1h-2zM11 25h1v1h-1zM16 25h1v1h-1zM18 25h1v1h-1zM20 25h1v1h-1zM23 25h1v1h-1zM25 25h4v1h-4zM0 26h1v1h-1zM2 26h3v1h-3zM6 26h1v1h-1zM8 26h1v1h-1zM10 26h1v1h-1zM14 26h2v1h-2zM17 26h2v1h-2zM21 26h7v1h-7zM0 27h1v1h-1zM6 27h1v1h-1zM8 27h1v1h-1zM14 27h1v1h-1zM16 27h1v1h-1zM18 27h3v1h-3zM22 27h1v1h-1zM24 27h2v1h-2zM27 27h1v1h-1zM0 28h7v1h-7zM8 28h2v1h-2zM11 28h3v1h-3zM17 28h3v1h-3zM22 28h1v1h-1zM24 28h3v1h-3z"/></svg>
+  <div class="qrUrl">professor-jeff.github.io/happy-face-nn</div>
+</div>
+
+<script>
+// ==== CORE START (no DOM in here; this part is also run by the test script) ====
+// ---------------------------------------------------------------------------
+// PART 1: the faces. Every picture is a 10×10 grid of 0 (white) and 1 (black),
+// flattened into an array of 100 numbers. Those 100 numbers are the network's inputs.
+// ---------------------------------------------------------------------------
+const SIZE = 10, N_IN = SIZE * SIZE;
+
+// seeded random numbers (mulberry32) so a classroom run is repeatable
+function makeRng(seed) {
+  let s = seed >>> 0;
+  const rng = () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  rng.normal = () => { const u = 1 - rng(), v = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  rng.int = (lo, hi) => lo + Math.floor(rng() * (hi - lo + 1));          // inclusive
+  rng.pick = arr => arr[Math.floor(rng() * arr.length)];
+  rng.shuffle = arr => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = arr[i]; arr[i] = arr[j]; arr[j] = t; } return arr; };
+  return rng;
+}
+
+const blank = () => new Array(N_IN).fill(0);
+function setPx(g, x, y) { if (x >= 0 && x < SIZE && y >= 0 && y < SIZE) g[y * SIZE + x] = 1; }
+
+// Mouth shapes as [dx, dy] offsets from the mouth's top-left corner. Happy curves up
+// (corners high, middle low); sad is the mirror image; neutral is a flat line.
+const MOUTHS = {
+  happy: [
+    [[0,0],[1,1],[2,1],[3,0]],
+    [[0,0],[1,1],[2,1],[3,1],[4,0]],
+    [[0,0],[1,1],[2,1],[3,1],[4,1],[5,0]],
+    [[0,0],[1,1],[2,2],[3,2],[4,1],[5,0]],
+    [[0,0],[0,1],[1,2],[2,2],[3,2],[4,2],[5,1],[5,0]],
+  ],
+  sad: [
+    [[0,1],[1,0],[2,0],[3,1]],
+    [[0,1],[1,0],[2,0],[3,0],[4,1]],
+    [[0,1],[1,0],[2,0],[3,0],[4,0],[5,1]],
+    [[0,2],[1,1],[2,0],[3,0],[4,1],[5,2]],
+    [[0,2],[0,1],[1,0],[2,0],[3,0],[4,0],[5,1],[5,2]],
+  ],
+  neutral: [
+    [[0,0],[1,0],[2,0]],
+    [[0,0],[1,0],[2,0],[3,0]],
+    [[0,0],[1,0],[2,0],[3,0],[4,0]],
+    [[0,0],[1,0],[2,0],[3,0],[4,0],[5,0]],
+  ],
+};
+
+// One face of the given kind, with random pose: head outline or not, eye style and
+// position, a slight tilt of the eyes, optional nose, mouth width and offset, a stray pixel.
+function makeFace(kind, rng) {
+  const g = blank();
+  const outline = rng() < 0.35;
+  if (outline) {                                        // an oval head
+    for (let x = 2; x <= 7; x++) { setPx(g, x, 0); setPx(g, x, 9); }
+    for (let y = 2; y <= 7; y++) { setPx(g, 0, y); setPx(g, 9, y); }
+    setPx(g, 1, 1); setPx(g, 8, 1); setPx(g, 1, 8); setPx(g, 8, 8);
+  }
+  const dx = outline ? 0 : rng.int(-1, 1);   // whole-face shift left/right (shifting up/down too needs far more training faces than a student will pick)
+
+  // eyes
+  const eyeY = rng.int(2, 3), tilt = rng() < 0.25 ? rng.pick([-1, 1]) : 0;
+  const lx = rng.int(2, 3) + dx, rx = rng.int(6, 7) + dx, ly = eyeY + tilt, ry = eyeY - tilt;
+  const style = rng.pick(["dot", "dot", "dot", "dot", "big", "big", "closed", "closed", "wink"]);
+  const eye = (x, y, how) => {
+    if (how === "dot") setPx(g, x, y);
+    else if (how === "closed") { setPx(g, x, y); setPx(g, x + 1, y); }
+    else { setPx(g, x, y); setPx(g, x + 1, y); setPx(g, x, y + 1); setPx(g, x + 1, y + 1); }   // big
+  };
+  eye(lx, ly, style === "wink" ? "closed" : style);
+  eye(rx, ry, style === "wink" ? "dot" : style);
+
+  // nose, sometimes
+  if (rng() < 0.3) setPx(g, rng.int(4, 5) + dx, 5);
+
+  // mouth: this is the only thing that differs between happy, sad and neutral
+  const shape = rng.pick(MOUTHS[kind]);
+  const w = Math.max(...shape.map(p => p[0])) + 1, h = Math.max(...shape.map(p => p[1])) + 1;
+  const x0 = 5 - Math.floor(w / 2) + rng.int(-1, 1) + dx, y0 = 6;
+  const bold = rng() < 0.2 && !(outline && h === 3);
+  shape.forEach(p => { setPx(g, x0 + p[0], y0 + p[1]); if (bold) setPx(g, x0 + p[0], y0 + p[1] + 1); });
+
+  if (rng() < 0.15) g[rng.int(0, N_IN - 1)] = 1;      // a stray speck
+  return g;
+}
+
+// Junk: pictures that are not faces at all. They go only into the test set.
+function makeJunk(type, rng) {
+  const g = blank();
+  if (type === "noise") { const p = 0.2 + rng() * 0.25; for (let i = 0; i < N_IN; i++) g[i] = rng() < p ? 1 : 0; }
+  else if (type === "stripes") {
+    const period = rng.int(2, 3), phase = rng.int(0, period - 1), vertical = rng() < 0.5;
+    for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) g[y * SIZE + x] = ((vertical ? x : y) + phase) % period === 0 ? 1 : 0;
+  }
+  else if (type === "scramble") {                      // a real face with its rows shuffled and slid
+    const f = makeFace(rng.pick(["happy", "sad", "neutral"]), rng), rows = rng.shuffle([0,1,2,3,4,5,6,7,8,9]);
+    for (let y = 0; y < SIZE; y++) { const shift = rng.int(0, 9); for (let x = 0; x < SIZE; x++) g[y * SIZE + x] = f[rows[y] * SIZE + (x + shift) % SIZE]; }
+  }
+  else {                                               // blob: a random walk
+    let x = rng.int(3, 6), y = rng.int(3, 6);
+    for (let i = 0; i < 28; i++) { setPx(g, x, y); x = Math.min(9, Math.max(0, x + rng.int(-1, 1))); y = Math.min(9, Math.max(0, y + rng.int(-1, 1))); }
+  }
+  return g;
+}
+
+const N_FACES = 64, N_JUNK = 12;
+function makeGallery(seed) {
+  const rng = makeRng(seed), kinds = [];
+  for (let i = 0; i < N_FACES; i++) kinds.push(["happy", "sad", "neutral"][i % 3]);
+  rng.shuffle(kinds);
+  const faces = kinds.map((kind, i) => ({ id: i, kind, pixels: makeFace(kind, rng) }));
+  const junkTypes = ["noise", "noise", "noise", "noise", "scramble", "scramble", "scramble", "stripes", "stripes", "stripes", "blob", "blob"];
+  const junk = junkTypes.map((t, i) => ({ id: N_FACES + i, kind: "junk", type: t, pixels: makeJunk(t, rng) }));
+  return { faces, junk, rng };
+}
+
+// Split: everything the user picked is HAPPY and trains. Unpicked faces the generator
+// drew as sad/neutral are NOT HAPPY: about twice as many as the picks go to training,
+// the rest to test. Unpicked happy faces and all junk go to the test set only.
+function splitData(faces, junk, pickedIds, rng) {
+  const picked = faces.filter(f => pickedIds.has(f.id));
+  const unpicked = faces.filter(f => !pickedIds.has(f.id));
+  const unpickedHappy = unpicked.filter(f => f.kind === "happy");
+  const unpickedNot = rng.shuffle(unpicked.filter(f => f.kind !== "happy").slice());
+  const nTrainNot = Math.min(unpickedNot.length, Math.max(2 * picked.length, 6));
+  const train = picked.map(f => ({ face: f, y: 1 })).concat(unpickedNot.slice(0, nTrainNot).map(f => ({ face: f, y: 0 })));
+  const test = unpickedHappy.map(f => ({ face: f, y: 1 }))
+    .concat(unpickedNot.slice(nTrainNot).map(f => ({ face: f, y: 0 })));
+  rng.shuffle(train); rng.shuffle(test);
+  return { train, test, junk: junk.map(f => ({ face: f, y: null })) };
+}
+
+// ---------------------------------------------------------------------------
+// PART 2: the network — same shape of code as the Python versions of the other demos
+// ---------------------------------------------------------------------------
+const N_HID = 8;
+const matrix = (rows, cols, fn) => Array.from({ length: rows }, () => Array.from({ length: cols }, fn));
+const relu = z => Math.max(0, z);
+const sigmoid = z => 1 / (1 + Math.exp(-z));
+
+function initializeWeights(rng) {
+  return {
+    W1: matrix(N_IN, N_HID, () => rng.normal() * 0.1), b1: new Array(N_HID).fill(0),
+    W2: Array.from({ length: N_HID }, () => rng.normal() * 0.3), b2: 0,
+  };
+}
+
+// forward pass for ONE picture: (1×100) @ (100×8) → relu → (1×8) @ (8×1) → sigmoid → probability of "happy"
+function forward(p, x) {
+  const z1 = new Array(N_HID), a1 = new Array(N_HID);
+  for (let j = 0; j < N_HID; j++) {
+    let s = p.b1[j];
+    for (let i = 0; i < N_IN; i++) s += x[i] * p.W1[i][j];     // black pixel (1) adds its weight, white (0) adds nothing
+    z1[j] = s; a1[j] = relu(s);
+  }
+  let z2 = p.b2;
+  for (let j = 0; j < N_HID; j++) z2 += a1[j] * p.W2[j];
+  return { z1, a1, prob: sigmoid(z2) };
+}
+
+// one full epoch: forward every training face, accumulate gradients, then update once
+function trainEpoch(p, train, lr) {
+  const n = train.length;
+  const dW1 = matrix(N_IN, N_HID, () => 0), db1 = new Array(N_HID).fill(0);
+  const dW2 = new Array(N_HID).fill(0); let db2 = 0;
+  let loss = 0, correct = 0;
+
+  for (let e = 0; e < n; e++) {
+    const x = train[e].face.pixels, y = train[e].y;
+    const { z1, a1, prob } = forward(p, x);
+
+    loss += -(y * Math.log(prob + 1e-12) + (1 - y) * Math.log(1 - prob + 1e-12));   // binary cross-entropy
+    if ((prob >= 0.5) === (y === 1)) correct++;
+
+    // --- backward pass (chain rule, layer by layer in reverse) ---
+    const dz2 = (prob - y) / n;                                  // "predicted minus correct"
+    for (let j = 0; j < N_HID; j++) dW2[j] += a1[j] * dz2;
+    db2 += dz2;
+    for (let j = 0; j < N_HID; j++) {
+      const dz1 = z1[j] > 0 ? dz2 * p.W2[j] : 0;                 // push the error back through W2, then relu
+      if (dz1 === 0) continue;
+      for (let i = 0; i < N_IN; i++) dW1[i][j] += x[i] * dz1;
+      db1[j] += dz1;
+    }
+  }
+
+  // --- update weights: nudge every weight against its gradient ---
+  for (let i = 0; i < N_IN; i++) for (let j = 0; j < N_HID; j++) p.W1[i][j] -= lr * dW1[i][j];
+  for (let j = 0; j < N_HID; j++) { p.b1[j] -= lr * db1[j]; p.W2[j] -= lr * dW2[j]; }
+  p.b2 -= lr * db2;
+
+  return { loss: loss / n, acc: correct / n };
+}
+
+function accuracy(p, set) {
+  if (set.length === 0) return NaN;
+  let ok = 0;
+  set.forEach(ex => { if ((forward(p, ex.face.pixels).prob >= 0.5) === (ex.y === 1)) ok++; });
+  return ok / set.length;
+}
+// ==== CORE END ====
+
+// ---------------------------------------------------------------------------
+// PART 3: the page
+// ---------------------------------------------------------------------------
+const EPOCHS = 300, LR = 0.5, EPOCHS_PER_FRAME = 2, MIN_PICKS = 3;
+const $ = id => document.getElementById(id);
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+let seed, rng, faces, junk, params, picked = new Set(), split = null;
+let training = false, trained = false, epochDone = 0, curve = [];
+const drawPixels = blank();
+
+function paintFace(canvas, pixels) {
+  canvas.width = SIZE; canvas.height = SIZE;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.fillStyle = "#111";
+  for (let i = 0; i < N_IN; i++) if (pixels[i]) ctx.fillRect(i % SIZE, Math.floor(i / SIZE), 1, 1);
+}
+const pct = v => Math.round(v * 100) + "%";
+const KIND_WORD = { happy: "happy", sad: "sad", neutral: "neutral", junk: "junk" };
+
+// --- arrow-key navigation inside a grid of buttons ---
+function gridNav(container, cols) {
+  container.addEventListener("keydown", e => {
+    const items = Array.from(container.querySelectorAll("button"));
+    const i = items.indexOf(document.activeElement);
+    if (i < 0) return;
+    const c = typeof cols === "function" ? cols(items) : cols;
+    const moves = { ArrowRight: i + 1, ArrowLeft: i - 1, ArrowDown: i + c, ArrowUp: i - c, Home: 0, End: items.length - 1 };
+    if (!(e.key in moves)) return;
+    const j = moves[e.key];
+    if (j >= 0 && j < items.length) { items[j].focus(); e.preventDefault(); }
+  });
+}
+const galleryCols = items => { const top = items[0].offsetTop; let n = 0; while (n < items.length && items[n].offsetTop === top) n++; return n || 1; };
+
+// --- step 1: gallery ---
+function renderGallery() {
+  const g = $("gallery");
+  g.innerHTML = "";
+  faces.forEach((f, i) => {
+    const b = document.createElement("button");
+    b.className = "tile"; b.type = "button"; b.dataset.id = f.id;
+    b.setAttribute("aria-pressed", "false");
+    b.setAttribute("aria-label", "Face " + (i + 1));
+    b.title = "Face " + (i + 1) + " — press to mark it happy";
+    const c = document.createElement("canvas"); c.className = "face"; c.setAttribute("aria-hidden", "true");
+    paintFace(c, f.pixels);
+    b.appendChild(c);
+    const badge = document.createElement("span"); badge.className = "badge"; badge.setAttribute("aria-hidden", "true"); badge.textContent = "✓";
+    b.appendChild(badge);
+    b.addEventListener("click", () => togglePick(f.id, b));
+    g.appendChild(b);
+  });
+  updatePickCount();
+}
+
+function togglePick(id, btn) {
+  if (training) return;
+  if (split) { clearSplit("Picks changed — press Done picking again to re-split and retrain."); }
+  if (picked.has(id)) picked.delete(id); else picked.add(id);
+  btn.setAttribute("aria-pressed", String(picked.has(id)));
+  updatePickCount();
+}
+
+function updatePickCount() {
+  const n = picked.size;
+  $("pickCount").textContent = n + " picked" + (n < MIN_PICKS ? " — pick at least " + MIN_PICKS : "");
+  $("doneBtn").disabled = n < MIN_PICKS || training;
+}
+
+// --- step 2: split + train ---
+function donePicking() {
+  if (picked.size < MIN_PICKS || training) return;
+  split = splitData(faces, junk, picked, rng);
+  params = initializeWeights(rng);
+  trained = false; epochDone = 0; curve = [];
+  const tr = split.train, te = split.test;
+  const trHappy = tr.filter(e => e.y === 1).length, teHappy = te.filter(e => e.y === 1).length;
+  $("trHappy").textContent = trHappy; $("trNot").textContent = tr.length - trHappy;
+  $("teHappy").textContent = teHappy; $("teNot").textContent = te.length - teHappy;
+  $("teJunk").textContent = split.junk.length;
+  $("trTot").textContent = tr.length; $("teTot").textContent = te.length + split.junk.length;
+  const offKind = tr.filter(e => e.y === 1 && e.face.kind !== "happy").length;
+  let note = "The network will see <b>only the training set</b>: your " + trHappy + " picks labeled <i>happy</i> plus " + (tr.length - trHappy) +
+    " unpicked faces labeled <i>not happy</i>. Everything else waits for the exam.";
+  if (offKind > 0) note += " " + offKind + " of your picks " + (offKind === 1 ? "is a face" : "are faces") + " the generator drew as sad or neutral. That is fine: the network learns <i>your</i> definition, but the exam grades by the generator's.";
+  if (teHappy === 0) note += " <b>You picked every happy face</b>, so the exam has no happy faces left. Start over and leave some unpicked.";
+  $("splitNote").innerHTML = note;
+  $("splitWait").hidden = true; $("splitBody").hidden = false;
+  $("testWait").hidden = true; $("testBody").hidden = false;
+  buildStrips();
+  resetTrainingUi();
+  refreshAll();
+  $("trainBtn").focus();
+}
+
+function clearSplit(msg) {
+  split = null; trained = false; epochDone = 0; curve = [];
+  params = initializeWeights(rng);
+  $("splitWait").hidden = false; $("splitBody").hidden = true;
+  $("testWait").hidden = false; $("testBody").hidden = true;
+  if (msg) { $("splitWait").innerHTML = msg; }
+  predictDraw();
+}
+
+function resetTrainingUi() {
+  $("epoch").textContent = "0"; $("loss").textContent = "—"; $("trainAcc").textContent = "—"; $("testAcc").textContent = "—";
+  $("prog").value = 0;
+  const s = $("status"); s.className = "status untrained"; s.textContent = "Untrained — weights are random, so the exam below is guesswork";
+  $("trainBtn").disabled = false;
+  drawCurve();
+}
+
+function makeResultTile(ex, label) {
+  const d = document.createElement("div"); d.className = "ttile"; d.setAttribute("role", "listitem");
+  const c = document.createElement("canvas"); c.className = "face"; c.setAttribute("aria-hidden", "true"); paintFace(c, ex.face.pixels);
+  d.appendChild(c);
+  d.insertAdjacentHTML("beforeend", '<div class="bar" aria-hidden="true"><div></div></div><div class="pred">—</div><div class="truth">' + label + '</div>');
+  return d;
+}
+
+let stripTiles = [], testTiles = [], junkTiles = [];
+function buildStrips() {
+  const ts = $("trainStrip"), te = $("testStrip"), ju = $("junkStrip");
+  ts.innerHTML = te.innerHTML = ju.innerHTML = "";
+  const happy = split.train.filter(e => e.y === 1).slice(0, 6), not = split.train.filter(e => e.y === 0).slice(0, 6);
+  stripTiles = happy.concat(not).map(ex => { const d = makeResultTile(ex, "label: " + (ex.y ? "happy" : "not happy")); ts.appendChild(d); return { ex, d }; });
+  testTiles = split.test.map(ex => { const d = makeResultTile(ex, "truth: " + (ex.y ? "happy" : "not happy (" + KIND_WORD[ex.face.kind] + ")")); te.appendChild(d); return { ex, d }; });
+  junkTiles = split.junk.map(ex => { const d = makeResultTile(ex, "junk (" + ex.face.type + ")"); d.classList.add("junk"); ju.appendChild(d); return { ex, d }; });
+}
+
+function updateTile(t, grade) {
+  const prob = forward(params, t.ex.face.pixels).prob, says = prob >= 0.5;
+  t.d.querySelector(".bar > div").style.width = (prob * 100).toFixed(1) + "%";
+  t.d.querySelector(".pred").textContent = (says ? "happy " : "not happy ") + pct(prob);
+  if (grade) {
+    const right = says === (t.ex.y === 1);
+    t.d.classList.toggle("right", right); t.d.classList.toggle("wrong", !right);
+    t.d.setAttribute("aria-label", "Network says " + (says ? "happy" : "not happy") + " with " + pct(prob) + "; truth " + (t.ex.y ? "happy" : "not happy") + "; " + (right ? "correct" : "wrong"));
+  } else {
+    t.d.setAttribute("aria-label", "Network says " + (says ? "happy" : "not happy") + " with " + pct(prob));
+  }
+  return says;
+}
+
+// repaint everything that depends on the current weights
+function refreshAll() {
+  if (split) {
+    stripTiles.forEach(t => updateTile(t, false));
+    testTiles.forEach(t => updateTile(t, true));
+    let junkHappy = 0; junkTiles.forEach(t => { if (updateTile(t, false)) junkHappy++; });
+    const acc = accuracy(params, split.test), n = split.test.length, nNot = split.test.filter(e => e.y === 0).length;
+    $("testAcc").textContent = n ? (acc * 100).toFixed(0) + "%" : "—";
+    const nRight = Math.round(acc * n);
+    $("testStatus").innerHTML = (n ? "<b>" + nRight + " of " + n + "</b> unseen faces right (" + (acc * 100).toFixed(0) + "%); always answering \u201cnot happy\u201d would score " + (100 * nNot / n).toFixed(0) + "%. " : "") +
+      "Junk: called <b>" + junkHappy + " of " + junkTiles.length + "</b> happy." + (trained ? "" : " <span style=\"color:var(--warn)\">(" + (training ? "training…" : "untrained") + ")</span>");
+  }
+  predictDraw();
+  if ($("netDialog").open) drawNetwork();
+}
+
+function train() {
+  if (training || !split) return;
+  training = true; $("trainBtn").disabled = true; $("doneBtn").disabled = true; $("newFacesBtn").disabled = true; $("resetBtn").disabled = true;
+  const s = $("status"); s.className = "status"; s.textContent = "Training…";
+  epochDone = 0; curve = [];
+  const trainSet = split.train;
+  function step() {
+    let stats;
+    for (let i = 0; i < EPOCHS_PER_FRAME && epochDone < EPOCHS; i++) { stats = trainEpoch(params, trainSet, LR); epochDone++; }
+    const testA = accuracy(params, split.test);
+    curve.push([epochDone / EPOCHS, stats.loss, testA]);
+    $("epoch").textContent = epochDone; $("loss").textContent = stats.loss.toFixed(4);
+    $("trainAcc").textContent = (stats.acc * 100).toFixed(0) + "%";
+    $("prog").value = epochDone;
+    drawCurve(); refreshAll();
+    if (epochDone < EPOCHS) requestAnimationFrame(step);
+    else {
+      training = false; trained = true;
+      s.className = "status done";
+      s.textContent = "Trained — " + (stats.acc * 100).toFixed(0) + "% on the training faces, " + (isNaN(testA) ? "no" : (testA * 100).toFixed(0) + "% on the") + " unseen faces";
+      $("doneBtn").disabled = picked.size < MIN_PICKS; $("newFacesBtn").disabled = false; $("resetBtn").disabled = false;
+      $("trainBtn").disabled = false; $("trainBtn").textContent = "Train again (300 more epochs)";
+      refreshAll();
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+function drawCurve() {
+  const c = $("curve"), ctx = c.getContext("2d"), W = c.width, H = c.height, L = 54, R = 64, T = 14, B = 40;
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = "17px system-ui, sans-serif"; ctx.lineWidth = 1;
+  const muted = cssVar("--muted"), line = cssVar("--line");
+  for (let k = 0; k <= 4; k++) {
+    const py = T + (H - T - B) * (1 - k / 4);
+    ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(L, py); ctx.lineTo(W - R, py); ctx.stroke();
+    ctx.fillStyle = muted; ctx.textAlign = "right"; ctx.fillText((k / 4).toFixed(2), L - 8, py + 6);
+    ctx.textAlign = "left"; ctx.fillText(k * 25 + "%", W - R + 8, py + 6);
+  }
+  ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.fillText("epochs →  (" + epochDone + " of " + EPOCHS + ")", (L + W - R) / 2, H - 10);
+  if (curve.length < 2) return;
+  const px = i => L + (W - L - R) * curve[i][0];
+  const plot = (col, idx) => {
+    ctx.strokeStyle = cssVar(col); ctx.lineWidth = 3; ctx.beginPath();
+    for (let i = 0; i < curve.length; i++) {
+      const v = idx === 1 ? Math.min(1, curve[i][1]) : curve[i][2];
+      if (isNaN(v)) continue;
+      const py = T + (H - T - B) * (1 - v);
+      if (i === 0) ctx.moveTo(px(i), py); else ctx.lineTo(px(i), py);
+    }
+    ctx.stroke();
+  };
+  plot("--accent", 1); plot("--ok", 2);
+}
+
+// --- step 4: draw your own ---
+function renderDraw() {
+  const d = $("draw");
+  for (let i = 0; i < N_IN; i++) {
+    const b = document.createElement("button"); b.type = "button"; b.dataset.i = i;
+    b.setAttribute("aria-pressed", "false");
+    b.setAttribute("aria-label", "row " + (Math.floor(i / SIZE) + 1) + ", column " + (i % SIZE + 1));
+    d.appendChild(b);
+  }
+  let painting = false, paintValue = 1, lastX = 0, lastY = 0;
+  const setCell = (i, v) => { if (drawPixels[i] === v) return; drawPixels[i] = v; d.children[i].setAttribute("aria-pressed", String(v === 1)); predictDraw(); };
+  const cellAt = (cx, cy) => { const el = document.elementFromPoint(cx, cy); return el && el.closest && el.closest("#draw button"); };
+  d.addEventListener("pointerdown", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    painting = true; paintValue = drawPixels[+b.dataset.i] ? 0 : 1; setCell(+b.dataset.i, paintValue);
+    lastX = e.clientX; lastY = e.clientY;
+    e.preventDefault();
+  });
+  d.addEventListener("pointermove", e => {
+    if (!painting) return;
+    // walk from the last pointer position to this one so a fast stroke doesn't skip cells
+    const step = Math.max(1, d.children[0].offsetWidth / 2), dist = Math.hypot(e.clientX - lastX, e.clientY - lastY), n = Math.ceil(dist / step);
+    for (let k = 1; k <= n; k++) { const b = cellAt(lastX + (e.clientX - lastX) * k / n, lastY + (e.clientY - lastY) * k / n); if (b) setCell(+b.dataset.i, paintValue); }
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  window.addEventListener("pointerup", () => { painting = false; });
+  d.addEventListener("click", e => {                                 // keyboard activation only (mouse is handled above)
+    const b = e.target.closest("button"); if (!b || e.detail !== 0) return;
+    setCell(+b.dataset.i, drawPixels[+b.dataset.i] ? 0 : 1);
+  });
+  gridNav(d, SIZE);
+}
+function loadDraw(pixels) {
+  for (let i = 0; i < N_IN; i++) { drawPixels[i] = pixels[i]; $("draw").children[i].setAttribute("aria-pressed", String(pixels[i] === 1)); }
+  predictDraw();
+}
+function predictDraw() {
+  const prob = forward(params, drawPixels).prob, says = prob >= 0.5;
+  const v = $("verdict");
+  v.textContent = (says ? "happy" : "not happy") + " · " + pct(prob);
+  v.className = "verdict " + (says ? "yes" : "no");
+  $("verdictFill").style.width = (prob * 100).toFixed(1) + "%";
+  $("verdictNote").textContent = trained ? "Probability of “happy” from the trained network. 50% is the line." :
+    training ? "Training in progress: this number is moving." : "The network is untrained, so this is a random guess. Finish steps 1 and 2.";
+  if ($("netDialog").open) drawNetwork();
+}
+
+// --- live picture of the network: the drawn face in, 8 weight heatmaps, one probability out ---
+function drawNetwork() {
+  const x = drawPixels, f = forward(params, x);
+  const W = 860, H = 560, cell = 20, gx = 30, gy = 170;                  // input picture
+  const hx = 420, hcell = 5, hsize = hcell * SIZE, hgap = 62, hy0 = 14;    // 8 heatmaps
+  const ox = 760, oy = 270;                                             // output
+  let maxW1 = 0, maxW2 = 0, maxA = 1e-9;
+  params.W1.forEach(row => row.forEach(w => { maxW1 = Math.max(maxW1, Math.abs(w)); }));
+  params.W2.forEach(w => { maxW2 = Math.max(maxW2, Math.abs(w)); });
+  f.a1.forEach(a => { maxA = Math.max(maxA, a); });
+  let s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" font-family="system-ui, sans-serif" font-size="13">';
+  // edges: input picture → each hidden neuron (grey: all 100 pixels feed every neuron), hidden → output (colored by W2)
+  for (let j = 0; j < N_HID; j++) {
+    const yc = hy0 + j * hgap + hsize / 2;
+    s += '<line x1="' + (gx + cell * SIZE + 4) + '" y1="' + (gy + cell * SIZE / 2) + '" x2="' + (hx - 4) + '" y2="' + yc + '" style="stroke:var(--muted)" stroke-opacity=".35" stroke-width="1.2"/>';
+    const m = Math.abs(params.W2[j]) / (maxW2 || 1);
+    s += '<line x1="' + (hx + hsize + 54) + '" y1="' + yc + '" x2="' + (ox - 30) + '" y2="' + oy + '" style="stroke:var(' + (params.W2[j] >= 0 ? "--pos" : "--neg") + ')" stroke-opacity="' + (0.15 + 0.75 * m).toFixed(2) + '" stroke-width="' + (0.8 + 4 * m).toFixed(2) + '"/>';
+  }
+  // input: the 10×10 picture from step 4
+  s += '<rect x="' + (gx - 1) + '" y="' + (gy - 1) + '" width="' + (cell * SIZE + 2) + '" height="' + (cell * SIZE + 2) + '" fill="#fff" style="stroke:var(--muted)"/>';
+  for (let i = 0; i < N_IN; i++) if (x[i]) s += '<rect x="' + (gx + (i % SIZE) * cell) + '" y="' + (gy + Math.floor(i / SIZE) * cell) + '" width="' + cell + '" height="' + cell + '" fill="#111"/>';
+  // hidden: each neuron's 100 input weights as a heatmap, plus a bar for how hard it fired
+  for (let j = 0; j < N_HID; j++) {
+    const y0 = hy0 + j * hgap;
+    s += '<rect x="' + hx + '" y="' + y0 + '" width="' + hsize + '" height="' + hsize + '" fill="#fff" style="stroke:var(--line)"/>';
+    for (let i = 0; i < N_IN; i++) {
+      const w = params.W1[i][j], m = Math.abs(w) / (maxW1 || 1);
+      if (m < 0.04) continue;
+      s += '<rect x="' + (hx + (i % SIZE) * hcell).toFixed(1) + '" y="' + (y0 + Math.floor(i / SIZE) * hcell).toFixed(1) + '" width="' + hcell + '" height="' + hcell + '" style="fill:var(' + (w >= 0 ? "--pos" : "--neg") + ')" fill-opacity="' + m.toFixed(2) + '"/>';
+    }
+    const a = f.a1[j] / maxA;
+    s += '<rect x="' + (hx + hsize + 8) + '" y="' + (y0 + hsize / 2 - 6) + '" width="40" height="12" rx="3" style="fill:var(--line)"/>';
+    s += '<rect x="' + (hx + hsize + 8) + '" y="' + (y0 + hsize / 2 - 6) + '" width="' + (40 * a).toFixed(1) + '" height="12" rx="3" style="fill:var(--ok)"/>';
+    s += '<text class="m" x="' + (hx - 8) + '" y="' + (y0 + hsize / 2 + 4) + '" text-anchor="end" font-size="11">h' + (j + 1) + '</text>';
+  }
+  // output: the probability
+  const says = f.prob >= 0.5;
+  s += '<circle cx="' + ox + '" cy="' + oy + '" r="30" style="fill:' + (says ? "var(--ok)" : "var(--card)") + ';stroke:var(--ok)" stroke-width="2.5"/>';
+  s += '<text x="' + ox + '" y="' + (oy + 6) + '" text-anchor="middle" font-weight="700" font-size="16" style="fill:' + (says ? "var(--on-ok)" : "var(--ink)") + '">' + pct(f.prob) + '</text>';
+  s += '<text x="' + ox + '" y="' + (oy + 52) + '" text-anchor="middle" font-weight="700">' + (says ? "happy" : "not happy") + '</text>';
+  // captions
+  s += '<text x="' + (gx + cell * SIZE / 2) + '" y="' + (H - 18) + '" text-anchor="middle" font-weight="600">100 inputs: the picture</text>';
+  s += '<text x="' + (hx + hsize / 2 + 20) + '" y="' + (H - 18) + '" text-anchor="middle" font-weight="600">8 hidden neurons</text>';
+  s += '<text class="m" x="' + (hx + hsize / 2 + 20) + '" y="' + (H - 36) + '" text-anchor="middle" font-size="11">each square = that neuron’s 100 weights, laid out like the picture</text>';
+  s += '<text x="' + ox + '" y="' + (H - 18) + '" text-anchor="middle" font-weight="600">1 output</text>';
+  s += '<text class="m" x="' + ((gx + cell * SIZE + hx) / 2) + '" y="' + (gy - 30) + '" text-anchor="middle" font-size="11">× W1 + b1, then relu (800 weights)</text>';
+  s += '<text class="m" x="' + ((hx + hsize + ox) / 2) + '" y="' + (gy - 30) + '" text-anchor="middle" font-size="11">× W2 + b2, then sigmoid (8 weights)</text>';
+  s += '</svg>';
+  $("netSvgWrap").innerHTML = s;
+  $("netTitle").textContent = "Inside the network, right now (" + (trained ? "trained" : training ? "training…" : "untrained") + ")";
+  $("netNote").innerHTML = "<b>Input</b> is the face drawn in step 4: 100 pixels, 1 for black and 0 for white. <b>Each heatmap</b> is one hidden neuron's 100 weights laid out in the same 10×10 shape: " +
+    '<b class="sw" style="background:var(--pos)"></b>positive (a black pixel here excites the neuron), <b class="sw" style="background:var(--neg)"></b>negative (a black pixel here quiets it); stronger color = bigger weight. ' +
+    "The green bar is how hard the neuron fired for this face. <b>Lines to the output</b> are the 8 weights of W2. After training, look for mouth-corner shapes in the heatmaps. Draw with this window open and it updates.";
+}
+
+// --- reset / new faces ---
+function newGallery(newSeed) {
+  seed = newSeed; const g = makeGallery(seed);
+  faces = g.faces; junk = g.junk; rng = g.rng;
+  picked = new Set();
+  params = initializeWeights(rng);
+  renderGallery();
+  clearSplit(null);
+  $("splitWait").innerHTML = "Finish step 1 first. When you press <b>Done picking</b>, the faces are split into a <b>training set</b> (what the network learns from) and a <b>test set</b> (faces it never sees until the exam).";
+  $("trainBtn").textContent = "Train (300 epochs)";
+  loadDraw(makeFace("happy", rng));
+}
+function startOver() {
+  if (training) return;
+  picked = new Set();
+  Array.from($("gallery").children).forEach(b => b.setAttribute("aria-pressed", "false"));
+  updatePickCount();
+  clearSplit(null);
+  $("splitWait").innerHTML = "Picks cleared. Pick some happy faces in step 1, then press <b>Done picking</b>.";
+  $("trainBtn").textContent = "Train (300 epochs)";
+  $("gallery").firstChild.focus();
+}
+
+$("doneBtn").addEventListener("click", donePicking);
+$("trainBtn").addEventListener("click", train);
+$("resetBtn").addEventListener("click", startOver);
+$("newFacesBtn").addEventListener("click", () => { if (!training) newGallery(Math.floor(Math.random() * 1e9)); });
+$("drawClear").addEventListener("click", () => loadDraw(blank()));
+$("drawHappy").addEventListener("click", () => loadDraw(makeFace("happy", rng)));
+$("drawSad").addEventListener("click", () => loadDraw(makeFace("sad", rng)));
+$("drawNeutral").addEventListener("click", () => loadDraw(makeFace("neutral", rng)));
+$("netBtn").addEventListener("click", () => { drawNetwork(); $("netDialog").showModal(); });
+$("netClose").addEventListener("click", () => $("netDialog").close());
+gridNav($("gallery"), galleryCols);
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { drawCurve(); if ($("netDialog").open) drawNetwork(); });
+
+renderDraw();
+newGallery(20261025);
+
+// QR code toggle so students can find this page during a presentation
+const qrBtn = $("qrBtn"), qrPanel = $("qrPanel");
+function setQr(open) {
+  qrPanel.classList.toggle("open", open);
+  qrBtn.textContent = open ? "Hide QR code" : "Show QR code";
+  qrBtn.setAttribute("aria-expanded", String(open));
+}
+qrBtn.addEventListener("click", () => setQr(!qrPanel.classList.contains("open")));
+document.addEventListener("keydown", e => { if (e.key === "Escape") setQr(false); });
+</script>
+</body>
+</html>
