@@ -136,7 +136,7 @@
 </head>
 <body>
 <div class="wrap">
-  <nav class="series" aria-label="Neural network demo series"><a href="https://professor-jeff.github.io/tictactoe-nn/" title="Previous demo in the series">← Previous: Tic-Tac-Toe</a><span>Part 3 of 3 · neural network demos</span><span></span></nav>
+  <nav class="series" aria-label="Neural network demo series"><a href="https://professor-jeff.github.io/tictactoe-nn/" title="Previous demo in the series">← Previous: Tic-Tac-Toe</a><span>Part 3 of 4 · neural network demos</span><a href="https://professor-jeff.github.io/learning-oracle/" title="Next demo in the series">Next: Learning Oracle →</a></nav>
   <h1>Happy or not? Teach a neural network to read faces</h1>
   <p class="sub">100 inputs (a 10×10 picture) → 8 hidden neurons → 1 output, the same kind of network as
     <a href="https://professor-jeff.github.io/pick-activity/">Pick Activity</a> and <a href="https://professor-jeff.github.io/tictactoe-nn/">Tic-Tac-Toe</a>.
@@ -289,7 +289,7 @@ dF[k][i][j] += dmap[k][r][c] · x[r+i][c+j]    summed over all r, c</pre>
     Things to notice: the network can score 100% on the training faces and still miss on the exam. If you only picked faces with big grins, narrow smiles may fail.
     Junk gets a confident answer either way. Draw a smile two rows too high and the fully connected model fails; shifted copies help only a little, and the convolutional model usually handles it. And the <b>Show the network</b> picture tells you which pixels each hidden neuron is watching: usually the mouth corners.
   </p>
-  <nav class="series bottom" aria-label="Neural network demo series"><a href="https://professor-jeff.github.io/tictactoe-nn/" title="Previous demo in the series">← Previous: Tic-Tac-Toe</a><span>Part 3 of 3 · neural network demos</span><span></span></nav>
+  <nav class="series bottom" aria-label="Neural network demo series"><a href="https://professor-jeff.github.io/tictactoe-nn/" title="Previous demo in the series">← Previous: Tic-Tac-Toe</a><span>Part 3 of 4 · neural network demos</span><a href="https://professor-jeff.github.io/learning-oracle/" title="Next demo in the series">Next: Learning Oracle →</a></nav>
 </div>
 
 <dialog id="netDialog" aria-labelledby="netTitle">
