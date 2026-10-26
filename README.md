@@ -22,6 +22,13 @@ the network learns *their* definition. Then it sits an exam on faces it has neve
    right/wrong color. Junk is flagged separately and not counted in the accuracy.
 4. **Draw a face** — a 10×10 grid to paint on, with a live prediction. Drawing is for testing only.
 
+**Shifted copies (data augmentation).** A checkbox in step 2 also trains on every training face
+shifted up/down by 1–2 rows and sideways by 1 column (15 copies each). It is there to make a point,
+not to fix the network: a fully connected network has no idea that the same shape in a different
+place is the same thing, so a smile drawn two rows too high fails. With shifted copies it passes a
+little more often and the normal exam gets a little worse. Copies multiply the examples, not the
+information. The real fix is a convolution, which is not in this demo.
+
 **Show the network** opens a live picture: the drawn face going in, each hidden neuron's 100
 weights as a heatmap laid out like the picture, and the probability coming out. After training,
 the heatmaps usually show the mouth corners.

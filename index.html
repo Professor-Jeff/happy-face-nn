@@ -91,6 +91,8 @@
   .draw button { margin: 0; padding: 0; aspect-ratio: 1; border: 0; border-radius: 2px; background: #fff; cursor: crosshair; }
   .draw button[aria-pressed="true"] { background: #111; }
   .draw button:focus-visible { outline-offset: 0; z-index: 1; }
+  .aug { display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 2px 0 2px; cursor: pointer; }
+  .aug input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
   .verdict { font-size: 1.6rem; font-weight: 700; margin: 6px 0 4px; min-height: 1.4em; }
   .verdict.yes { color: var(--ok); } .verdict.no { color: var(--muted); }
   .bigbar { height: 18px; background: var(--line); border-radius: 6px; overflow: hidden; margin: 6px 0 10px; position: relative; }
@@ -162,6 +164,8 @@
         <div class="stat" title="How many training faces it currently gets right. With this few examples it can usually reach 100% by memorizing them."><div class="k">Training accuracy</div><div class="v" id="trainAcc">—</div></div>
         <div class="stat" title="How many TEST faces it gets right: faces it has never seen. This is the number that matters. Junk images are not counted here."><div class="k">Test accuracy (unseen)</div><div class="v" id="testAcc">—</div></div>
       </div>
+      <label class="aug" title="Data augmentation: every training face is also fed in shifted up or down by one and two rows. The exam faces are not changed."><input type="checkbox" id="augBox"> Also train on shifted copies (data augmentation)</label>
+      <p class="note" id="augNote" style="margin-top:0"></p>
       <button class="primary" id="trainBtn" title="Run 300 passes of gradient descent over the training set. About 3 seconds.">Train (300 epochs)</button>
       <button id="netBtn" title="Open a live picture of the network: the drawn face from step 4 going in, each hidden neuron's 100 weights as a heatmap, and the probability coming out.">Show the network</button>
       <button id="resetBtn" title="Keep these faces but clear your picks and throw away the weights.">Start over</button>
@@ -224,6 +228,7 @@ dW1[i][j] += x[i] · dz1[j]     then every weight -= learning rate × its gradie
           <button id="drawSad" title="Load a brand-new sad face.">Random sad</button>
           <button id="drawNeutral" title="Load a brand-new neutral face.">Random neutral</button>
         </div>
+        <p class="note">Where the training faces live: the generator puts <b>eyes around rows 3–4</b> and the <b>mouth on rows 7–9</b>, and slides faces left or right but never up or down. Draw a smile two rows higher and the network has never seen a mouth on those pixels. A plain fully connected network has no idea that the same shape in a different place is the same thing: every pixel is a separate input. Turn on <b>shifted copies</b> in step 2 and retrain to see how much, and how little, that helps. (Real image networks solve this with convolution: one small filter slid across the whole picture, so a mouth corner is a mouth corner wherever it is.)</p>
       </div>
       <div>
         <h3 style="margin-top:0">Network says</h3>
@@ -237,7 +242,7 @@ dW1[i][j] += x[i] · dz1[j]     then every weight -= learning rate × its gradie
 
   <p class="sub" style="margin-top:18px">
     Things to notice: the network can score 100% on the training faces and still miss on the exam. If you only picked faces with big grins, narrow smiles may fail.
-    Junk gets a confident answer either way. And the <b>Show the network</b> picture tells you which pixels each hidden neuron is watching: usually the mouth corners.
+    Junk gets a confident answer either way. Draw a smile two rows too high and it fails; shifted copies help only a little. And the <b>Show the network</b> picture tells you which pixels each hidden neuron is watching: usually the mouth corners.
   </p>
 </div>
 
@@ -390,6 +395,24 @@ function splitData(faces, junk, pickedIds, rng) {
     .concat(unpickedNot.slice(nTrainNot).map(f => ({ face: f, y: 0 })));
   rng.shuffle(train); rng.shuffle(test);
   return { train, test, junk: junk.map(f => ({ face: f, y: null })) };
+}
+
+// Data augmentation: the same training faces, also shifted up/down by 1-2 rows and
+// left/right by 1 column (15 copies of each). Pixels that fall off the edge are dropped.
+function shifted(pixels, dx, dy) {
+  const g = blank();
+  for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
+    const sx = x - dx, sy = y - dy;
+    if (sx >= 0 && sx < SIZE && sy >= 0 && sy < SIZE) g[y * SIZE + x] = pixels[sy * SIZE + sx];
+  }
+  return g;
+}
+const SHIFTS = [];
+for (let dy = -2; dy <= 2; dy++) for (let dx = -1; dx <= 1; dx++) SHIFTS.push([dx, dy]);
+function augment(train) {
+  const out = [];
+  train.forEach(ex => SHIFTS.forEach(([dx, dy]) => out.push({ face: dx === 0 && dy === 0 ? ex.face : { kind: ex.face.kind, pixels: shifted(ex.face.pixels, dx, dy) }, y: ex.y })));
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -554,6 +577,7 @@ function donePicking() {
   $("splitWait").hidden = true; $("splitBody").hidden = false;
   $("testWait").hidden = true; $("testBody").hidden = false;
   buildStrips();
+  updateAugNote();
   resetTrainingUi();
   refreshAll();
   $("trainBtn").focus();
@@ -629,7 +653,7 @@ function train() {
   training = true; $("trainBtn").disabled = true; $("doneBtn").disabled = true; $("newFacesBtn").disabled = true; $("resetBtn").disabled = true;
   const s = $("status"); s.className = "status"; s.textContent = "Training…";
   epochDone = 0; curve = [];
-  const trainSet = split.train;
+  const augmented = $("augBox").checked, trainSet = augmented ? augment(split.train) : split.train;
   function step() {
     let stats;
     for (let i = 0; i < EPOCHS_PER_FRAME && epochDone < EPOCHS; i++) { stats = trainEpoch(params, trainSet, LR); epochDone++; }
@@ -643,7 +667,7 @@ function train() {
     else {
       training = false; trained = true;
       s.className = "status done";
-      s.textContent = "Trained — " + (stats.acc * 100).toFixed(0) + "% on the training faces, " + (isNaN(testA) ? "no" : (testA * 100).toFixed(0) + "% on the") + " unseen faces";
+      s.textContent = "Trained — " + (stats.acc * 100).toFixed(0) + "% on the training faces, " + (isNaN(testA) ? "no" : (testA * 100).toFixed(0) + "% on the") + " unseen faces" + (augmented ? " (trained on " + trainSet.length + " faces including shifted copies)" : "");
       $("doneBtn").disabled = picked.size < MIN_PICKS; $("newFacesBtn").disabled = false; $("resetBtn").disabled = false;
       $("trainBtn").disabled = false; $("trainBtn").textContent = "Train again (300 more epochs)";
       refreshAll();
@@ -804,6 +828,17 @@ function startOver() {
   $("gallery").firstChild.focus();
 }
 
+function updateAugNote() {
+  const n = split ? split.train.length : 0;
+  $("augNote").innerHTML = "The generator never moves faces up or down, so a plain network only learns the mouth where it saw it. This adds copies of every training face shifted up and down by 1–2 rows and sideways by 1 column" +
+    (n ? " (<b>" + n + " faces become " + n * SHIFTS.length + "</b>)" : "") + ". Exam faces stay as they are. Expect a trade: faces drawn too high pass more often, the normal exam gets a little worse, and training takes longer. " +
+    "Copies multiply the examples but not the information; a fully connected network still has to learn each position separately.";
+}
+$("augBox").addEventListener("change", () => {
+  if (!split || training) return;
+  params = initializeWeights(rng); trained = false; epochDone = 0; curve = [];
+  resetTrainingUi(); $("trainBtn").textContent = "Train (300 epochs)"; refreshAll();
+});
 $("doneBtn").addEventListener("click", donePicking);
 $("trainBtn").addEventListener("click", train);
 $("resetBtn").addEventListener("click", startOver);
@@ -815,6 +850,7 @@ $("drawNeutral").addEventListener("click", () => loadDraw(makeFace("neutral", rn
 $("netBtn").addEventListener("click", () => { drawNetwork(); $("netDialog").showModal(); });
 $("netClose").addEventListener("click", () => $("netDialog").close());
 gridNav($("gallery"), galleryCols);
+updateAugNote();
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { drawCurve(); if ($("netDialog").open) drawNetwork(); });
 
 renderDraw();
