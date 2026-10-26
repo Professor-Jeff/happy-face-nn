@@ -123,10 +123,16 @@
   #qrPanel .qrUrl { font-size: .85rem; color: var(--muted); letter-spacing: .03em; }
   @media (max-width: 700px) { #qrPanel svg { width: 160px; height: 160px; } }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* previous / next links through the demo series */
+  .series { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: .9rem; color: var(--muted); margin: 0 0 14px; }
+  .series a { color: var(--accent); text-decoration: none; font-weight: 600; white-space: nowrap; }
+  .series a:hover, .series a:focus-visible { text-decoration: underline; }
+  .series.bottom { margin: 28px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
 </style>
 </head>
 <body>
 <div class="wrap">
+  <nav class="series" aria-label="Neural network demo series"><a href="https://professor-jeff.github.io/tictactoe-nn/" title="Previous demo in the series">← Previous: Tic-Tac-Toe</a><span>Part 3 of 3 · neural network demos</span><span></span></nav>
   <h1>Happy or not? Teach a neural network to read faces</h1>
   <p class="sub">100 inputs (a 10×10 picture) → 8 hidden neurons → 1 output, the same kind of network as
     <a href="https://professor-jeff.github.io/pick-activity/">Pick Activity</a> and <a href="https://professor-jeff.github.io/tictactoe-nn/">Tic-Tac-Toe</a>.
@@ -271,6 +277,7 @@ dF[k][i][j] += dmap[k][r][c] · x[r+i][c+j]    summed over all r, c</pre>
     Things to notice: the network can score 100% on the training faces and still miss on the exam. If you only picked faces with big grins, narrow smiles may fail.
     Junk gets a confident answer either way. Draw a smile two rows too high and the fully connected model fails; shifted copies help only a little, and the convolutional model usually handles it. And the <b>Show the network</b> picture tells you which pixels each hidden neuron is watching: usually the mouth corners.
   </p>
+  <nav class="series bottom" aria-label="Neural network demo series"><a href="https://professor-jeff.github.io/tictactoe-nn/" title="Previous demo in the series">← Previous: Tic-Tac-Toe</a><span>Part 3 of 3 · neural network demos</span><span></span></nav>
 </div>
 
 <dialog id="netDialog" aria-labelledby="netTitle">
