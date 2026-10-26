@@ -5,6 +5,7 @@
 Third in the COMP 138 series after [pick-activity](https://github.com/Professor-Jeff/pick-activity)
 and [tictactoe-nn](https://github.com/Professor-Jeff/tictactoe-nn). The same small network,
 written from scratch in plain JavaScript, now looks at pictures: 10×10 black-and-white faces.
+A second model, convolutional, sits behind a switch so the two can be compared on identical data.
 
 This time there are no rules to copy and no perfect player to imitate. **The student makes the
 training data.** They scroll a gallery of generated faces, pick the ones they consider happy, and
@@ -22,12 +23,23 @@ the network learns *their* definition. Then it sits an exam on faces it has neve
    right/wrong color. Junk is flagged separately and not counted in the accuracy.
 4. **Draw a face** — a 10×10 grid to paint on, with a live prediction. Drawing is for testing only.
 
-**Shifted copies (data augmentation).** A checkbox in step 2 also trains on every training face
-shifted up/down by 1–2 rows and sideways by 1 column (15 copies each). It is there to make a point,
-not to fix the network: a fully connected network has no idea that the same shape in a different
-place is the same thing, so a smile drawn two rows too high fails. With shifted copies it passes a
-little more often and the normal exam gets a little worse. Copies multiply the examples, not the
-information. The real fix is a convolution, which is not in this demo.
+**Two models, one switch.** Step 2 has a *Fully connected | Convolutional* switch. Both train on the
+same picks and sit the same exam.
+
+- *Fully connected*: 100 pixels → 8 relu hidden → 1 sigmoid output, 817 weights. It has no idea that
+  the same shape in a different place is the same thing, so a smile drawn two rows too high fails.
+- *Convolutional*: six 3×3 filters slid across the picture (8×8 feature maps, relu), then the
+  strongest response in the left half and the right half of each map (12 numbers), then the same
+  8 hidden → 1 tail. 173 weights. Because the pooling forgets how high up a shape was, the
+  too-high smile usually passes. **Show the network** draws the filters and their feature maps live.
+
+**Shifted copies (data augmentation).** A checkbox also trains on every training face shifted
+up/down by 1–2 rows and sideways by 1 column (15 copies each). For the fully connected model it
+helps only a little and costs exam accuracy: copies multiply the examples, not the information.
+
+Measured over 30 random galleries with 5–8 picks each (unseen accuracy / unseen happy faces caught /
+unseen happy faces shifted up two rows caught): fully connected 82 / 65 / 33 %, with copies
+68 / 46 / 42 %; convolutional 78 / 61 / 64 %, with copies 75 / 63 / 66 %.
 
 **Show the network** opens a live picture: the drawn face going in, each hidden neuron's 100
 weights as a heatmap laid out like the picture, and the probability coming out. After training,
@@ -45,8 +57,13 @@ the heatmaps usually show the mouth corners.
 const dz2 = (prob - y) / n;      // "predicted minus correct"
 ```
 
-Architecture: 100 inputs → 8 hidden (relu) → 1 output (sigmoid). Full-batch gradient descent,
-learning rate 0.5, 300 epochs. Deliberately fixed so the lesson is about data, not knobs.
+**PART 2b** is the convolutional model: `convForward` slides the filters and max-pools, and
+`convTrainEpoch` backpropagates through the pooling (the gradient goes to the spot that won the max)
+and the convolution (each filter's gradient adds up every place it was applied). `MODELS` is the
+registry the page switches between.
+
+Both: full-batch gradient descent, learning rate 0.5, 300 epochs. Sizes are deliberately fixed so
+the lesson is about data and wiring, not knobs.
 
 **PART 1: the faces** is the generator (seeded, so a classroom run is repeatable) and
 `splitData`, which builds the training and test sets from the student's picks.

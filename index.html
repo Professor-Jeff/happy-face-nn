@@ -91,6 +91,12 @@
   .draw button { margin: 0; padding: 0; aspect-ratio: 1; border: 0; border-radius: 2px; background: #fff; cursor: crosshair; }
   .draw button[aria-pressed="true"] { background: #111; }
   .draw button:focus-visible { outline-offset: 0; z-index: 1; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin: 0 8px 8px 0; }
+  .seg button { margin: 0; border: 0; border-radius: 0; padding: 8px 12px; font-size: .9rem; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
+  .seg button:focus-visible { outline-offset: -3px; }
+  #netDialog svg .fm rect { shape-rendering: crispEdges; }
   .aug { display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 2px 0 2px; cursor: pointer; }
   .aug input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
   .verdict { font-size: 1.6rem; font-weight: 700; margin: 6px 0 4px; min-height: 1.4em; }
@@ -125,7 +131,8 @@
   <p class="sub">100 inputs (a 10×10 picture) → 8 hidden neurons → 1 output, the same kind of network as
     <a href="https://professor-jeff.github.io/pick-activity/">Pick Activity</a> and <a href="https://professor-jeff.github.io/tictactoe-nn/">Tic-Tac-Toe</a>.
     This time there are no rules and no perfect player to copy. <b>You</b> make the training data: pick the faces you think are happy,
-    and the network learns <i>your</i> definition. Then we test it on faces it has never seen.</p>
+    and the network learns <i>your</i> definition. Then we test it on faces it has never seen.
+    New in this one: a second model, <b>convolutional</b>, that slides a few tiny filters across the picture instead of wiring every pixel to every neuron.</p>
 
   <!-- ============================ STEP 1 ============================ -->
   <div class="card">
@@ -164,6 +171,14 @@
         <div class="stat" title="How many training faces it currently gets right. With this few examples it can usually reach 100% by memorizing them."><div class="k">Training accuracy</div><div class="v" id="trainAcc">—</div></div>
         <div class="stat" title="How many TEST faces it gets right: faces it has never seen. This is the number that matters. Junk images are not counted here."><div class="k">Test accuracy (unseen)</div><div class="v" id="testAcc">—</div></div>
       </div>
+      <div class="pickbar" style="margin:2px 0 6px">
+        <span style="font-weight:600">Model:</span>
+        <div class="seg" id="modelSeg" role="group" aria-label="Which model to train">
+          <button type="button" data-model="dense" aria-pressed="true" title="Every one of the 100 pixels is wired to every one of the 8 hidden neurons.">Fully connected</button>
+          <button type="button" data-model="conv" aria-pressed="false" title="Six 3×3 filters are slid across the picture; each feature map is summarized by its strongest response in the left half and in the right half; then the same 8 hidden neurons and 1 output.">Convolutional</button>
+        </div>
+        <span class="note" id="modelNote" style="margin:0"></span>
+      </div>
       <label class="aug" title="Data augmentation: every training face is also fed in shifted up or down by one and two rows. The exam faces are not changed."><input type="checkbox" id="augBox"> Also train on shifted copies (data augmentation)</label>
       <p class="note" id="augNote" style="margin-top:0"></p>
       <button class="primary" id="trainBtn" title="Run 300 passes of gradient descent over the training set. About 3 seconds.">Train (300 epochs)</button>
@@ -186,7 +201,7 @@
 
       <details>
         <summary>The math, in one screen</summary>
-        <pre>// forward: 100 pixels → 8 hidden neurons → 1 probability
+        <pre id="mathDense">// forward: 100 pixels → 8 hidden neurons → 1 probability
 z1[j] = b1[j] + Σ_i  x[i] · W1[i][j]      a1[j] = max(0, z1[j])      // relu
 z2    = b2    + Σ_j a1[j] · W2[j]          p     = 1 / (1 + e^(−z2))    // sigmoid
 
@@ -197,6 +212,18 @@ loss  = −( y · log p + (1 − y) · log(1 − p) )
 dz2   = p − y
 dW2[j] += a1[j] · dz2          dz1[j] = (z1[j] > 0) ? dz2 · W2[j] : 0
 dW1[i][j] += x[i] · dz1[j]     then every weight -= learning rate × its gradient</pre>
+        <pre id="mathConv" hidden>// convolutional front end: 6 filters of 3×3 weights, each slid over the whole picture
+map[k][r][c] = relu( bF[k] + Σ_{i,j} F[k][i][j] · x[r+i][c+j] )   // the SAME 9 weights at every (r, c)
+pooled[k][q] = max of map[k] over the left / right half             // whether it fired matters, not where up or down
+
+// then the same tail as the fully connected model, on the 12 pooled numbers
+z1[j] = b1[j] + Σ_i pooled[i] · W1[i][j]     a1[j] = max(0, z1[j])
+z2    = b2    + Σ_j a1[j] · W2[j]             p     = 1 / (1 + e^(−z2))
+
+// backward: identical down to the pooled layer, then the gradient of each pooled
+// number goes back to the one spot that won the max, and the filter's gradient
+// adds up what it learned at EVERY spot it was applied
+dF[k][i][j] += dmap[k][r][c] · x[r+i][c+j]    summed over all r, c</pre>
       </details>
     </div>
   </div>
@@ -228,7 +255,7 @@ dW1[i][j] += x[i] · dz1[j]     then every weight -= learning rate × its gradie
           <button id="drawSad" title="Load a brand-new sad face.">Random sad</button>
           <button id="drawNeutral" title="Load a brand-new neutral face.">Random neutral</button>
         </div>
-        <p class="note">Where the training faces live: the generator puts <b>eyes around rows 3–4</b> and the <b>mouth on rows 7–9</b>, and slides faces left or right but never up or down. Draw a smile two rows higher and the network has never seen a mouth on those pixels. A plain fully connected network has no idea that the same shape in a different place is the same thing: every pixel is a separate input. Turn on <b>shifted copies</b> in step 2 and retrain to see how much, and how little, that helps. (Real image networks solve this with convolution: one small filter slid across the whole picture, so a mouth corner is a mouth corner wherever it is.)</p>
+        <p class="note">Where the training faces live: the generator puts <b>eyes around rows 3–4</b> and the <b>mouth on rows 7–9</b>, and slides faces left or right but never up or down. Draw a smile two rows higher and the network has never seen a mouth on those pixels. A plain fully connected network has no idea that the same shape in a different place is the same thing: every pixel is a separate input. Turn on <b>shifted copies</b> in step 2 and retrain to see how much, and how little, that helps. Then switch the model to <b>Convolutional</b> and retrain: one small filter slid across the whole picture, so a mouth corner is a mouth corner wherever it is.</p>
       </div>
       <div>
         <h3 style="margin-top:0">Network says</h3>
@@ -242,7 +269,7 @@ dW1[i][j] += x[i] · dz1[j]     then every weight -= learning rate × its gradie
 
   <p class="sub" style="margin-top:18px">
     Things to notice: the network can score 100% on the training faces and still miss on the exam. If you only picked faces with big grins, narrow smiles may fail.
-    Junk gets a confident answer either way. Draw a smile two rows too high and it fails; shifted copies help only a little. And the <b>Show the network</b> picture tells you which pixels each hidden neuron is watching: usually the mouth corners.
+    Junk gets a confident answer either way. Draw a smile two rows too high and the fully connected model fails; shifted copies help only a little, and the convolutional model usually handles it. And the <b>Show the network</b> picture tells you which pixels each hidden neuron is watching: usually the mouth corners.
   </p>
 </div>
 
@@ -477,10 +504,104 @@ function trainEpoch(p, train, lr) {
   return { loss: loss / n, acc: correct / n };
 }
 
-function accuracy(p, set) {
+// ---------------------------------------------------------------------------
+// PART 2b: the convolutional model. Same 8-hidden → 1 tail; the front end slides a few
+// 3×3 filters across the picture, so a pattern counts wherever it appears, and keeps only
+// the strongest response in the left half and in the right half (where up/down is forgotten).
+// ---------------------------------------------------------------------------
+const N_FILT = 6, FS = 3, MAP = SIZE - FS + 1;                       // 6 filters of 3×3 → 8×8 feature maps
+const POOL_R = 1, POOL_C = 2, REG_R = MAP / POOL_R, REG_C = MAP / POOL_C, N_POOLED = N_FILT * POOL_R * POOL_C;   // max-pool each map to 1 row × 2 columns: the left half and the right half
+
+function convInitializeWeights(rng) {
+  return {
+    F: Array.from({ length: N_FILT }, () => Array.from({ length: FS * FS }, () => rng.normal() * 0.3)), bF: new Array(N_FILT).fill(0),
+    W1: matrix(N_POOLED, N_HID, () => rng.normal() * 0.3), b1: new Array(N_HID).fill(0),
+    W2: Array.from({ length: N_HID }, () => rng.normal() * 0.3), b2: 0,
+  };
+}
+
+// forward: slide each filter over the 10×10 picture → 8×8 map, relu, max over each half → 12 numbers → tail
+function convForward(p, x) {
+  const maps = [], pooled = new Array(N_POOLED), where = new Array(N_POOLED);
+  for (let k = 0; k < N_FILT; k++) {
+    const m = new Array(MAP * MAP);
+    for (let r = 0; r < MAP; r++) for (let c = 0; c < MAP; c++) {
+      let s = p.bF[k];
+      for (let i = 0; i < FS; i++) for (let j = 0; j < FS; j++) s += x[(r + i) * SIZE + c + j] * p.F[k][i * FS + j];
+      m[r * MAP + c] = relu(s);
+    }
+    maps.push(m);
+    for (let pr = 0; pr < POOL_R; pr++) for (let pc = 0; pc < POOL_C; pc++) {   // max-pool: the biggest response in each region
+      let best = -1, at = -1;
+      for (let r = pr * REG_R; r < (pr + 1) * REG_R; r++) for (let c = pc * REG_C; c < (pc + 1) * REG_C; c++) { const v = m[r * MAP + c]; if (v > best) { best = v; at = r * MAP + c; } }
+      const q = (k * POOL_R + pr) * POOL_C + pc; pooled[q] = best; where[q] = at;
+    }
+  }
+  const z1 = new Array(N_HID), a1 = new Array(N_HID);
+  for (let j = 0; j < N_HID; j++) {
+    let s = p.b1[j];
+    for (let i = 0; i < N_POOLED; i++) s += pooled[i] * p.W1[i][j];
+    z1[j] = s; a1[j] = relu(s);
+  }
+  let z2 = p.b2;
+  for (let j = 0; j < N_HID; j++) z2 += a1[j] * p.W2[j];
+  return { maps, pooled, where, z1, a1, prob: sigmoid(z2) };
+}
+
+function convTrainEpoch(p, train, lr) {
+  const n = train.length;
+  const dF = matrix(N_FILT, FS * FS, () => 0), dbF = new Array(N_FILT).fill(0);
+  const dW1 = matrix(N_POOLED, N_HID, () => 0), db1 = new Array(N_HID).fill(0);
+  const dW2 = new Array(N_HID).fill(0); let db2 = 0;
+  let loss = 0, correct = 0;
+
+  for (let e = 0; e < n; e++) {
+    const x = train[e].face.pixels, y = train[e].y;
+    const { pooled, where, z1, a1, prob } = convForward(p, x);
+
+    loss += -(y * Math.log(prob + 1e-12) + (1 - y) * Math.log(1 - prob + 1e-12));
+    if ((prob >= 0.5) === (y === 1)) correct++;
+
+    // --- backward through the tail: exactly as in the fully connected model ---
+    const dz2 = (prob - y) / n;                                  // "predicted minus correct"
+    for (let j = 0; j < N_HID; j++) dW2[j] += a1[j] * dz2;
+    db2 += dz2;
+    const dz1 = new Array(N_HID);
+    for (let j = 0; j < N_HID; j++) {
+      dz1[j] = z1[j] > 0 ? dz2 * p.W2[j] : 0;
+      if (dz1[j] === 0) continue;
+      for (let i = 0; i < N_POOLED; i++) dW1[i][j] += pooled[i] * dz1[j];
+      db1[j] += dz1[j];
+    }
+    // --- back through the pooling and the convolution ---
+    for (let q = 0; q < N_POOLED; q++) {
+      if (pooled[q] <= 0) continue;                              // relu was off at the winning spot: no gradient
+      let dpool = 0;
+      for (let j = 0; j < N_HID; j++) dpool += p.W1[q][j] * dz1[j];
+      if (dpool === 0) continue;
+      const k = Math.floor(q / (POOL_R * POOL_C)), r = Math.floor(where[q] / MAP), c = where[q] % MAP;   // the spot that won the max
+      for (let i = 0; i < FS; i++) for (let j = 0; j < FS; j++) dF[k][i * FS + j] += dpool * x[(r + i) * SIZE + c + j];
+      dbF[k] += dpool;
+    }
+  }
+
+  for (let k = 0; k < N_FILT; k++) { for (let w = 0; w < FS * FS; w++) p.F[k][w] -= lr * dF[k][w]; p.bF[k] -= lr * dbF[k]; }
+  for (let i = 0; i < N_POOLED; i++) for (let j = 0; j < N_HID; j++) p.W1[i][j] -= lr * dW1[i][j];
+  for (let j = 0; j < N_HID; j++) { p.b1[j] -= lr * db1[j]; p.W2[j] -= lr * dW2[j]; }
+  p.b2 -= lr * db2;
+  return { loss: loss / n, acc: correct / n };
+}
+
+// the two models behind one switch: same job, same training loop, different wiring
+const MODELS = {
+  dense: { label: "fully connected", init: initializeWeights, forward, trainEpoch, note: "100 pixels → 8 hidden → 1 output: 817 weights" },
+  conv:  { label: "convolutional", init: convInitializeWeights, forward: convForward, trainEpoch: convTrainEpoch, note: "6 filters of 3×3 → max over each half → 8 hidden → 1 output: 173 weights" },
+};
+
+function accuracy(m, p, set) {
   if (set.length === 0) return NaN;
   let ok = 0;
-  set.forEach(ex => { if ((forward(p, ex.face.pixels).prob >= 0.5) === (ex.y === 1)) ok++; });
+  set.forEach(ex => { if ((m.forward(p, ex.face.pixels).prob >= 0.5) === (ex.y === 1)) ok++; });
   return ok / set.length;
 }
 // ==== CORE END ====
@@ -492,7 +613,8 @@ const EPOCHS = 300, LR = 0.5, EPOCHS_PER_FRAME = 2, MIN_PICKS = 3;
 const $ = id => document.getElementById(id);
 const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-let seed, rng, faces, junk, params, picked = new Set(), split = null;
+let seed, rng, faces, junk, params, picked = new Set(), split = null, modelKey = "dense";
+const model = () => MODELS[modelKey];
 let training = false, trained = false, epochDone = 0, curve = [];
 const drawPixels = blank();
 
@@ -560,7 +682,7 @@ function updatePickCount() {
 function donePicking() {
   if (picked.size < MIN_PICKS || training) return;
   split = splitData(faces, junk, picked, rng);
-  params = initializeWeights(rng);
+  params = model().init(rng);
   trained = false; epochDone = 0; curve = [];
   const tr = split.train, te = split.test;
   const trHappy = tr.filter(e => e.y === 1).length, teHappy = te.filter(e => e.y === 1).length;
@@ -585,7 +707,7 @@ function donePicking() {
 
 function clearSplit(msg) {
   split = null; trained = false; epochDone = 0; curve = [];
-  params = initializeWeights(rng);
+  params = model().init(rng);
   $("splitWait").hidden = false; $("splitBody").hidden = true;
   $("testWait").hidden = false; $("testBody").hidden = true;
   if (msg) { $("splitWait").innerHTML = msg; }
@@ -619,7 +741,7 @@ function buildStrips() {
 }
 
 function updateTile(t, grade) {
-  const prob = forward(params, t.ex.face.pixels).prob, says = prob >= 0.5;
+  const prob = model().forward(params, t.ex.face.pixels).prob, says = prob >= 0.5;
   t.d.querySelector(".bar > div").style.width = (prob * 100).toFixed(1) + "%";
   t.d.querySelector(".pred").textContent = (says ? "happy " : "not happy ") + pct(prob);
   if (grade) {
@@ -638,7 +760,7 @@ function refreshAll() {
     stripTiles.forEach(t => updateTile(t, false));
     testTiles.forEach(t => updateTile(t, true));
     let junkHappy = 0; junkTiles.forEach(t => { if (updateTile(t, false)) junkHappy++; });
-    const acc = accuracy(params, split.test), n = split.test.length, nNot = split.test.filter(e => e.y === 0).length;
+    const acc = accuracy(model(), params, split.test), n = split.test.length, nNot = split.test.filter(e => e.y === 0).length;
     $("testAcc").textContent = n ? (acc * 100).toFixed(0) + "%" : "—";
     const nRight = Math.round(acc * n);
     $("testStatus").innerHTML = (n ? "<b>" + nRight + " of " + n + "</b> unseen faces right (" + (acc * 100).toFixed(0) + "%); always answering \u201cnot happy\u201d would score " + (100 * nNot / n).toFixed(0) + "%. " : "") +
@@ -656,8 +778,8 @@ function train() {
   const augmented = $("augBox").checked, trainSet = augmented ? augment(split.train) : split.train;
   function step() {
     let stats;
-    for (let i = 0; i < EPOCHS_PER_FRAME && epochDone < EPOCHS; i++) { stats = trainEpoch(params, trainSet, LR); epochDone++; }
-    const testA = accuracy(params, split.test);
+    for (let i = 0; i < EPOCHS_PER_FRAME && epochDone < EPOCHS; i++) { stats = model().trainEpoch(params, trainSet, LR); epochDone++; }
+    const testA = accuracy(model(), params, split.test);
     curve.push([epochDone / EPOCHS, stats.loss, testA]);
     $("epoch").textContent = epochDone; $("loss").textContent = stats.loss.toFixed(4);
     $("trainAcc").textContent = (stats.acc * 100).toFixed(0) + "%";
@@ -667,7 +789,7 @@ function train() {
     else {
       training = false; trained = true;
       s.className = "status done";
-      s.textContent = "Trained — " + (stats.acc * 100).toFixed(0) + "% on the training faces, " + (isNaN(testA) ? "no" : (testA * 100).toFixed(0) + "% on the") + " unseen faces" + (augmented ? " (trained on " + trainSet.length + " faces including shifted copies)" : "");
+      s.textContent = "Trained (" + model().label + ") — " + (stats.acc * 100).toFixed(0) + "% on the training faces, " + (isNaN(testA) ? "no" : (testA * 100).toFixed(0) + "% on the") + " unseen faces" + (augmented ? " (trained on " + trainSet.length + " faces including shifted copies)" : "");
       $("doneBtn").disabled = picked.size < MIN_PICKS; $("newFacesBtn").disabled = false; $("resetBtn").disabled = false;
       $("trainBtn").disabled = false; $("trainBtn").textContent = "Train again (300 more epochs)";
       refreshAll();
@@ -740,7 +862,7 @@ function loadDraw(pixels) {
   predictDraw();
 }
 function predictDraw() {
-  const prob = forward(params, drawPixels).prob, says = prob >= 0.5;
+  const prob = model().forward(params, drawPixels).prob, says = prob >= 0.5;
   const v = $("verdict");
   v.textContent = (says ? "happy" : "not happy") + " · " + pct(prob);
   v.className = "verdict " + (says ? "yes" : "no");
@@ -750,9 +872,81 @@ function predictDraw() {
   if ($("netDialog").open) drawNetwork();
 }
 
-// --- live picture of the network: the drawn face in, 8 weight heatmaps, one probability out ---
-function drawNetwork() {
-  const x = drawPixels, f = forward(params, x);
+// --- live picture of the network: the drawn face in, the weights, one probability out ---
+function drawNetwork() { if (modelKey === "conv") drawConvNetwork(); else drawDenseNetwork(); }
+
+function drawConvNetwork() {
+  const x = drawPixels, p = params, f = convForward(p, x);
+  const W = 860, H = 560;
+  const gx = 16, gy = 195, cell = 16;                        // input picture, 160 px
+  const fx = 222, fcell = 11, fsz = fcell * FS;              // the 3×3 filters
+  const mx = 290, mcell = 7, msz = mcell * MAP;              // 8×8 feature maps
+  const px = 392, pcell = 15, psz = pcell * POOL_C;          // pooled maxima (left half, right half)
+  const hx = 590, ox = 770, oy = 280;
+  const rowY = k => 30 + k * 84, yHid = j => 72 + j * 58;
+  let maxF = 1e-9, maxM = 1e-9, maxW1 = 1e-9, maxW2 = 1e-9, maxA = 1e-9;
+  p.F.forEach(fl => fl.forEach(w => { maxF = Math.max(maxF, Math.abs(w)); }));
+  f.maps.forEach(m => m.forEach(v => { maxM = Math.max(maxM, v); }));
+  p.W1.forEach(row => row.forEach(w => { maxW1 = Math.max(maxW1, Math.abs(w)); }));
+  p.W2.forEach(w => { maxW2 = Math.max(maxW2, Math.abs(w)); });
+  f.a1.forEach(a => { maxA = Math.max(maxA, a); });
+  const edge = (x1, y1, x2, y2, w, maxW, lo, hi) => { const m = Math.abs(w) / maxW; return '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" style="stroke:var(' + (w >= 0 ? "--pos" : "--neg") + ')" stroke-opacity="' + (lo + (hi - lo) * m).toFixed(2) + '" stroke-width="' + (0.6 + 3 * m).toFixed(2) + '"/>'; };
+  let s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" font-family="system-ui, sans-serif" font-size="13">';
+  // edges first: picture → each filter (grey), pooled numbers → hidden (W1), hidden → output (W2)
+  for (let k = 0; k < N_FILT; k++) s += '<line x1="' + (gx + cell * SIZE + 3) + '" y1="' + (gy + cell * SIZE / 2) + '" x2="' + (fx - 4) + '" y2="' + (rowY(k) + 14 + fsz / 2) + '" style="stroke:var(--muted)" stroke-opacity=".35" stroke-width="1.2"/>';
+  for (let q = 0; q < N_POOLED; q++) {
+    const k = Math.floor(q / (POOL_R * POOL_C)), pr = Math.floor(q / POOL_C) % POOL_R, pc = q % POOL_C;
+    const cx = px + (pc + 0.5) * pcell, cy = rowY(k) + 20 + (pr + 0.5) * pcell;
+    for (let j = 0; j < N_HID; j++) s += edge(cx + pcell / 2, cy, hx - 11, yHid(j), p.W1[q][j], maxW1, 0.05, 0.6);
+  }
+  for (let j = 0; j < N_HID; j++) s += edge(hx + 11, yHid(j), ox - 32, oy, p.W2[j], maxW2, 0.15, 0.9);
+  // the picture
+  s += '<rect x="' + (gx - 1) + '" y="' + (gy - 1) + '" width="' + (cell * SIZE + 2) + '" height="' + (cell * SIZE + 2) + '" fill="#fff" style="stroke:var(--muted)"/>';
+  for (let i = 0; i < N_IN; i++) if (x[i]) s += '<rect x="' + (gx + (i % SIZE) * cell) + '" y="' + (gy + Math.floor(i / SIZE) * cell) + '" width="' + cell + '" height="' + cell + '" fill="#111"/>';
+  // one row per filter: the filter, its feature map, its 4 pooled maxima
+  for (let k = 0; k < N_FILT; k++) {
+    const y0 = rowY(k);
+    s += '<text class="m" x="' + (fx + fsz / 2) + '" y="' + (y0 + 7) + '" text-anchor="middle" font-size="10">filter ' + (k + 1) + '</text>';
+    s += '<rect x="' + fx + '" y="' + (y0 + 14) + '" width="' + fsz + '" height="' + fsz + '" fill="#fff" style="stroke:var(--line)"/>';
+    for (let w = 0; w < FS * FS; w++) { const v = p.F[k][w]; s += '<rect x="' + (fx + (w % FS) * fcell) + '" y="' + (y0 + 14 + Math.floor(w / FS) * fcell) + '" width="' + fcell + '" height="' + fcell + '" style="fill:var(' + (v >= 0 ? "--pos" : "--neg") + ')" fill-opacity="' + (Math.abs(v) / maxF).toFixed(2) + '"/>'; }
+    s += '<text class="m" x="' + (fx + fsz + 4) + '" y="' + (y0 + 14 + fsz / 2 + 4) + '" font-size="11">→</text>';
+    s += '<g class="fm"><rect x="' + mx + '" y="' + y0 + '" width="' + msz + '" height="' + msz + '" fill="#fff" style="stroke:var(--line)"/>';
+    for (let i = 0; i < MAP * MAP; i++) { const v = f.maps[k][i] / maxM; if (v < 0.04) continue; s += '<rect x="' + (mx + (i % MAP) * mcell) + '" y="' + (y0 + Math.floor(i / MAP) * mcell) + '" width="' + mcell + '" height="' + mcell + '" style="fill:var(--ok)" fill-opacity="' + v.toFixed(2) + '"/>'; }
+    s += '<line x1="' + (mx + msz / 2) + '" y1="' + y0 + '" x2="' + (mx + msz / 2) + '" y2="' + (y0 + msz) + '" style="stroke:var(--muted)" stroke-opacity=".6" stroke-dasharray="2 2"/></g>';
+    s += '<text class="m" x="' + (mx + msz + 4) + '" y="' + (y0 + msz / 2 + 4) + '" font-size="11">max →</text>';
+    for (let pr = 0; pr < POOL_R; pr++) for (let pc = 0; pc < POOL_C; pc++) { const v = f.pooled[(k * POOL_R + pr) * POOL_C + pc] / maxM; s += '<rect x="' + (px + pc * pcell) + '" y="' + (y0 + 20 + pr * pcell) + '" width="' + pcell + '" height="' + pcell + '" fill="#fff" style="stroke:var(--line)"/><rect x="' + (px + pc * pcell) + '" y="' + (y0 + 20 + pr * pcell) + '" width="' + pcell + '" height="' + pcell + '" style="fill:var(--ok)" fill-opacity="' + Math.max(0, v).toFixed(2) + '"/>'; }
+  }
+  // hidden and output, as in the fully connected picture
+  for (let j = 0; j < N_HID; j++) {
+    const a = f.a1[j] / maxA;
+    s += '<circle cx="' + hx + '" cy="' + yHid(j) + '" r="10" style="fill:var(--ok)" fill-opacity="' + (0.08 + 0.92 * a).toFixed(2) + '" stroke="currentColor" stroke-opacity=".4" stroke-width="1"/>';
+    s += '<text class="m" x="' + (hx + 16) + '" y="' + (yHid(j) + 4) + '" font-size="10">h' + (j + 1) + '</text>';
+  }
+  const says = f.prob >= 0.5;
+  s += '<circle cx="' + ox + '" cy="' + oy + '" r="30" style="fill:' + (says ? "var(--ok)" : "var(--card)") + ';stroke:var(--ok)" stroke-width="2.5"/>';
+  s += '<text x="' + ox + '" y="' + (oy + 6) + '" text-anchor="middle" font-weight="700" font-size="16" style="fill:' + (says ? "var(--on-ok)" : "var(--ink)") + '">' + pct(f.prob) + '</text>';
+  s += '<text x="' + ox + '" y="' + (oy + 52) + '" text-anchor="middle" font-weight="700">' + (says ? "happy" : "not happy") + '</text>';
+  // captions
+  s += '<text x="' + (gx + cell * SIZE / 2) + '" y="' + (H - 18) + '" text-anchor="middle" font-weight="600">the picture</text>';
+  s += '<text x="' + (fx + fsz / 2) + '" y="' + (H - 18) + '" text-anchor="middle" font-weight="600">6 filters</text>';
+  s += '<text class="m" x="' + (fx + fsz / 2) + '" y="' + (H - 36) + '" text-anchor="middle" font-size="11">3×3, slid everywhere</text>';
+  s += '<text x="' + (mx + msz / 2) + '" y="' + (H - 18) + '" text-anchor="middle" font-weight="600">feature maps</text>';
+  s += '<text class="m" x="' + (mx + msz / 2) + '" y="' + (H - 36) + '" text-anchor="middle" font-size="11">8×8, relu</text>';
+  s += '<text x="' + (px + psz / 2) + '" y="' + (H - 18) + '" text-anchor="middle" font-weight="600">max per half</text>';
+  s += '<text class="m" x="' + (px + psz / 2) + '" y="' + (H - 36) + '" text-anchor="middle" font-size="11">left, right: 12 numbers</text>';
+  s += '<text x="' + hx + '" y="' + (H - 18) + '" text-anchor="middle" font-weight="600">8 hidden</text>';
+  s += '<text class="m" x="' + hx + '" y="' + (H - 36) + '" text-anchor="middle" font-size="11">× W1 + b1, relu (96 weights)</text>';
+  s += '<text x="' + ox + '" y="' + (H - 18) + '" text-anchor="middle" font-weight="600">1 output</text>';
+  s += '</svg>';
+  $("netSvgWrap").innerHTML = s;
+  $("netTitle").textContent = "Inside the convolutional network, right now (" + (trained ? "trained" : training ? "training…" : "untrained") + ")";
+  $("netNote").innerHTML = "<b>Each filter</b> is just 9 weights (<b class=\"sw\" style=\"background:var(--pos)\"></b>positive, <b class=\"sw\" style=\"background:var(--neg)\"></b>negative). It is slid over every 3×3 patch of the picture, and its <b>feature map</b> lights up wherever the patch matches: the same detector at every position. " +
+    "<b>Max per half</b> keeps only the strongest response in the left half and in the right half of each map, so the network knows <i>whether</i> a shape appeared on the left or the right, and nothing about how high up. That is why a smile drawn too high still works. Those 12 numbers feed the same 8 hidden neurons and 1 output as the fully connected model. " +
+    "After training, look for diagonal-edge filters: a mouth corner is a diagonal, and a \\ on the left with a / on the right is a smile.";
+}
+
+function drawDenseNetwork() {
+  const x = drawPixels, f = model().forward(params, x);
   const W = 860, H = 560, cell = 20, gx = 30, gy = 170;                  // input picture
   const hx = 420, hcell = 5, hsize = hcell * SIZE, hgap = 62, hy0 = 14;    // 8 heatmaps
   const ox = 760, oy = 270;                                             // output
@@ -810,7 +1004,7 @@ function newGallery(newSeed) {
   seed = newSeed; const g = makeGallery(seed);
   faces = g.faces; junk = g.junk; rng = g.rng;
   picked = new Set();
-  params = initializeWeights(rng);
+  params = model().init(rng);
   renderGallery();
   clearSplit(null);
   $("splitWait").innerHTML = "Finish step 1 first. When you press <b>Done picking</b>, the faces are split into a <b>training set</b> (what the network learns from) and a <b>test set</b> (faces it never sees until the exam).";
@@ -834,9 +1028,21 @@ function updateAugNote() {
     (n ? " (<b>" + n + " faces become " + n * SHIFTS.length + "</b>)" : "") + ". Exam faces stay as they are. Expect a trade: faces drawn too high pass more often, the normal exam gets a little worse, and training takes longer. " +
     "Copies multiply the examples but not the information; a fully connected network still has to learn each position separately.";
 }
+function setModel(key) {
+  if (training || key === modelKey) return;
+  modelKey = key;
+  Array.from($("modelSeg").children).forEach(b => b.setAttribute("aria-pressed", String(b.dataset.model === key)));
+  $("modelNote").textContent = model().note;
+  $("mathDense").hidden = key !== "dense"; $("mathConv").hidden = key !== "conv";
+  params = model().init(rng); trained = false; epochDone = 0; curve = [];
+  if (split) { resetTrainingUi(); $("trainBtn").textContent = "Train (300 epochs)"; }
+  refreshAll();
+}
+$("modelSeg").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setModel(b.dataset.model); });
+$("modelNote").textContent = MODELS.dense.note;
 $("augBox").addEventListener("change", () => {
   if (!split || training) return;
-  params = initializeWeights(rng); trained = false; epochDone = 0; curve = [];
+  params = model().init(rng); trained = false; epochDone = 0; curve = [];
   resetTrainingUi(); $("trainBtn").textContent = "Train (300 epochs)"; refreshAll();
 });
 $("doneBtn").addEventListener("click", donePicking);
