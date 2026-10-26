@@ -99,9 +99,7 @@
   #netDialog svg .fm rect { shape-rendering: crispEdges; }
   .aug { display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 2px 0 2px; cursor: pointer; }
   .aug input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
-  .h2row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin: 0 0 12px; }
-  .h2row h2 { margin: 0; }
-  .shift { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .shift { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 10px 0 2px; }
   .shift button { margin: 0; padding: 6px 0; min-width: 40px; font-size: 1.1rem; line-height: 1; }
   .shift button.txt { font-size: .85rem; padding: 8px 10px; }
   .shift .note { margin: 0 0 0 6px; min-width: 9em; }
@@ -256,21 +254,19 @@ dF[k][i][j] += dmap[k][r][c] · x[r+i][c+j]    summed over all r, c</pre>
 
   <!-- ============================ STEP 4 ============================ -->
   <div class="card">
-    <div class="h2row">
-      <h2>4 · Draw a face, see what it thinks</h2>
-      <div class="shift" role="group" aria-label="Shift the drawing">
-        <button type="button" id="shLeft" aria-label="Shift the drawing left one column" title="Move the drawing one column left. Pixels pushed off the edge are remembered and come back when you shift the other way.">←</button>
-        <button type="button" id="shUp" aria-label="Shift the drawing up one row" title="Move the drawing one row up. Pixels pushed off the edge are remembered.">↑</button>
-        <button type="button" id="shDown" aria-label="Shift the drawing down one row" title="Move the drawing one row down. Pixels pushed off the edge are remembered.">↓</button>
-        <button type="button" id="shRight" aria-label="Shift the drawing right one column" title="Move the drawing one column right. Pixels pushed off the edge are remembered.">→</button>
-        <button type="button" class="txt" id="shCenter" title="Put the drawing back where it was before shifting.">Center</button>
-        <span class="note" id="shiftNote" role="status">not shifted</span>
-      </div>
-    </div>
+    <h2>4 · Draw a face, see what it thinks</h2>
     <div class="two">
       <div>
-        <p class="note" style="margin-top:0">Click or drag to paint pixels. This face is only for <b>testing</b>: it never goes into the training set. Arrow keys move, Space toggles. The arrows above slide the whole drawing so you can see how position changes the verdict; nothing is lost off the edge.</p>
+        <p class="note" style="margin-top:0">Click or drag to paint pixels. This face is only for <b>testing</b>: it never goes into the training set. Arrow keys move, Space toggles. The arrows under the grid slide the whole drawing so you can see how position changes the verdict; nothing is lost off the edge.</p>
         <div class="draw" id="draw" role="group" aria-label="Drawing grid, 10 by 10 pixels"></div>
+        <div class="shift" role="group" aria-label="Shift the drawing">
+          <button type="button" id="shLeft" aria-label="Shift the drawing left one column" title="Move the drawing one column left. Pixels pushed off the edge are remembered and come back when you shift the other way.">←</button>
+          <button type="button" id="shUp" aria-label="Shift the drawing up one row" title="Move the drawing one row up. Pixels pushed off the edge are remembered.">↑</button>
+          <button type="button" id="shDown" aria-label="Shift the drawing down one row" title="Move the drawing one row down. Pixels pushed off the edge are remembered.">↓</button>
+          <button type="button" id="shRight" aria-label="Shift the drawing right one column" title="Move the drawing one column right. Pixels pushed off the edge are remembered.">→</button>
+          <button type="button" class="txt" id="shCenter" title="Put the drawing back where it was before shifting.">Center</button>
+          <span class="note" id="shiftNote" role="status">not shifted</span>
+        </div>
         <div style="margin-top:10px">
           <button id="drawClear">Clear</button>
           <button id="drawHappy" title="Load a brand-new happy face from the generator (not one from the gallery).">Random happy</button>
