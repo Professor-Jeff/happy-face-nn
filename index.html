@@ -99,6 +99,12 @@
   #netDialog svg .fm rect { shape-rendering: crispEdges; }
   .aug { display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 2px 0 2px; cursor: pointer; }
   .aug input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+  .h2row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin: 0 0 12px; }
+  .h2row h2 { margin: 0; }
+  .shift { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .shift button { margin: 0; padding: 6px 0; min-width: 40px; font-size: 1.1rem; line-height: 1; }
+  .shift button.txt { font-size: .85rem; padding: 8px 10px; }
+  .shift .note { margin: 0 0 0 6px; min-width: 9em; }
   .verdict { font-size: 1.6rem; font-weight: 700; margin: 6px 0 4px; min-height: 1.4em; }
   .verdict.yes { color: var(--ok); } .verdict.no { color: var(--muted); }
   .bigbar { height: 18px; background: var(--line); border-radius: 6px; overflow: hidden; margin: 6px 0 10px; position: relative; }
@@ -250,10 +256,20 @@ dF[k][i][j] += dmap[k][r][c] · x[r+i][c+j]    summed over all r, c</pre>
 
   <!-- ============================ STEP 4 ============================ -->
   <div class="card">
-    <h2>4 · Draw a face, see what it thinks</h2>
+    <div class="h2row">
+      <h2>4 · Draw a face, see what it thinks</h2>
+      <div class="shift" role="group" aria-label="Shift the drawing">
+        <button type="button" id="shLeft" aria-label="Shift the drawing left one column" title="Move the drawing one column left. Pixels pushed off the edge are remembered and come back when you shift the other way.">←</button>
+        <button type="button" id="shUp" aria-label="Shift the drawing up one row" title="Move the drawing one row up. Pixels pushed off the edge are remembered.">↑</button>
+        <button type="button" id="shDown" aria-label="Shift the drawing down one row" title="Move the drawing one row down. Pixels pushed off the edge are remembered.">↓</button>
+        <button type="button" id="shRight" aria-label="Shift the drawing right one column" title="Move the drawing one column right. Pixels pushed off the edge are remembered.">→</button>
+        <button type="button" class="txt" id="shCenter" title="Put the drawing back where it was before shifting.">Center</button>
+        <span class="note" id="shiftNote" role="status">not shifted</span>
+      </div>
+    </div>
     <div class="two">
       <div>
-        <p class="note" style="margin-top:0">Click or drag to paint pixels. This face is only for <b>testing</b>: it never goes into the training set. Arrow keys move, Space toggles.</p>
+        <p class="note" style="margin-top:0">Click or drag to paint pixels. This face is only for <b>testing</b>: it never goes into the training set. Arrow keys move, Space toggles. The arrows above slide the whole drawing so you can see how position changes the verdict; nothing is lost off the edge.</p>
         <div class="draw" id="draw" role="group" aria-label="Drawing grid, 10 by 10 pixels"></div>
         <div style="margin-top:10px">
           <button id="drawClear">Clear</button>
@@ -624,6 +640,10 @@ let seed, rng, faces, junk, params, picked = new Set(), split = null, modelKey =
 const model = () => MODELS[modelKey];
 let training = false, trained = false, epochDone = 0, curve = [];
 const drawPixels = blank();
+// The drawing lives on a 30×30 sheet; the 10×10 grid is a window onto it at (vx, vy), so
+// shifting the picture off the edge and back loses nothing.
+const SHEET = 30, HOME = 10, sheet = new Array(SHEET * SHEET).fill(0);
+let vx = HOME, vy = HOME;
 
 function paintFace(canvas, pixels) {
   canvas.width = SIZE; canvas.height = SIZE;
@@ -842,7 +862,7 @@ function renderDraw() {
     d.appendChild(b);
   }
   let painting = false, paintValue = 1, lastX = 0, lastY = 0;
-  const setCell = (i, v) => { if (drawPixels[i] === v) return; drawPixels[i] = v; d.children[i].setAttribute("aria-pressed", String(v === 1)); predictDraw(); };
+  const setCell = (i, v) => { if (drawPixels[i] === v) return; drawPixels[i] = v; sheet[(vy + Math.floor(i / SIZE)) * SHEET + vx + i % SIZE] = v; d.children[i].setAttribute("aria-pressed", String(v === 1)); predictDraw(); };
   const cellAt = (cx, cy) => { const el = document.elementFromPoint(cx, cy); return el && el.closest && el.closest("#draw button"); };
   d.addEventListener("pointerdown", e => {
     const b = e.target.closest("button"); if (!b) return;
@@ -864,9 +884,22 @@ function renderDraw() {
   });
   gridNav(d, SIZE);
 }
-function loadDraw(pixels) {
-  for (let i = 0; i < N_IN; i++) { drawPixels[i] = pixels[i]; $("draw").children[i].setAttribute("aria-pressed", String(pixels[i] === 1)); }
+function syncView() {                       // copy the window of the sheet into the 10×10 grid
+  for (let i = 0; i < N_IN; i++) { drawPixels[i] = sheet[(vy + Math.floor(i / SIZE)) * SHEET + vx + i % SIZE]; $("draw").children[i].setAttribute("aria-pressed", String(drawPixels[i] === 1)); }
+  const right = HOME - vx, down = HOME - vy, parts = [];
+  if (down) parts.push(Math.abs(down) + (down < 0 ? " up" : " down"));
+  if (right) parts.push(Math.abs(right) + (right < 0 ? " left" : " right"));
+  $("shiftNote").textContent = parts.length ? "shifted " + parts.join(", ") : "not shifted";
   predictDraw();
+}
+function loadDraw(pixels) {
+  sheet.fill(0); vx = HOME; vy = HOME;
+  for (let i = 0; i < N_IN; i++) sheet[(HOME + Math.floor(i / SIZE)) * SHEET + HOME + i % SIZE] = pixels[i];
+  syncView();
+}
+function shiftDraw(dx, dy) {                // dx, dy = which way the picture moves; the window moves the other way
+  vx = Math.min(SHEET - SIZE, Math.max(0, vx - dx)); vy = Math.min(SHEET - SIZE, Math.max(0, vy - dy));
+  syncView();
 }
 function predictDraw() {
   const prob = model().forward(params, drawPixels).prob, says = prob >= 0.5;
@@ -1057,6 +1090,11 @@ $("trainBtn").addEventListener("click", train);
 $("resetBtn").addEventListener("click", startOver);
 $("newFacesBtn").addEventListener("click", () => { if (!training) newGallery(Math.floor(Math.random() * 1e9)); });
 $("drawClear").addEventListener("click", () => loadDraw(blank()));
+$("shUp").addEventListener("click", () => shiftDraw(0, -1));
+$("shDown").addEventListener("click", () => shiftDraw(0, 1));
+$("shLeft").addEventListener("click", () => shiftDraw(-1, 0));
+$("shRight").addEventListener("click", () => shiftDraw(1, 0));
+$("shCenter").addEventListener("click", () => { vx = HOME; vy = HOME; syncView(); });
 $("drawHappy").addEventListener("click", () => loadDraw(makeFace("happy", rng)));
 $("drawSad").addEventListener("click", () => loadDraw(makeFace("sad", rng)));
 $("drawNeutral").addEventListener("click", () => loadDraw(makeFace("neutral", rng)));
