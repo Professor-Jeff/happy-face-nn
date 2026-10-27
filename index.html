@@ -132,6 +132,7 @@
   .series a { color: var(--accent); text-decoration: none; font-weight: 600; white-space: nowrap; }
   .series a:hover, .series a:focus-visible { text-decoration: underline; }
   .series.bottom { margin: 28px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
+  @media (max-width: 600px) { .series { flex-wrap: wrap; } .series > span { order: 3; width: 100%; text-align: center; } }
 </style>
 </head>
 <body>
@@ -273,7 +274,6 @@ dF[k][i][j] += dmap[k][r][c] · x[r+i][c+j]    summed over all r, c</pre>
           <button id="drawSad" title="Load a brand-new sad face.">Random sad</button>
           <button id="drawNeutral" title="Load a brand-new neutral face.">Random neutral</button>
         </div>
-        <p class="note">Where the training faces live: the generator puts <b>eyes around rows 3–4</b> and the <b>mouth on rows 7–9</b>, and slides faces left or right but never up or down. Draw a smile two rows higher and the network has never seen a mouth on those pixels. A plain fully connected network has no idea that the same shape in a different place is the same thing: every pixel is a separate input. Turn on <b>shifted copies</b> in step 2 and retrain to see how much, and how little, that helps. Then switch the model to <b>Convolutional</b> and retrain: one small filter slid across the whole picture, so a mouth corner is a mouth corner wherever it is.</p>
       </div>
       <div>
         <h3 style="margin-top:0">Network says</h3>
@@ -283,6 +283,7 @@ dF[k][i][j] += dmap[k][r][c] · x[r+i][c+j]    summed over all r, c</pre>
         <p class="note">Try it: start from a random happy face and erase one corner of the mouth. Draw a mouth with no eyes. Draw just the eyes. Scribble. Where does your definition of happy and the network's come apart?</p>
       </div>
     </div>
+    <p class="note" style="margin-top:14px">Where the training faces live: the generator puts <b>eyes around rows 3–4</b> and the <b>mouth on rows 7–9</b>, and slides faces left or right but never up or down. Draw a smile two rows higher and the network has never seen a mouth on those pixels. A plain fully connected network has no idea that the same shape in a different place is the same thing: every pixel is a separate input. Turn on <b>shifted copies</b> in step 2 and retrain to see how much, and how little, that helps. Then switch the model to <b>Convolutional</b> and retrain: one small filter slid across the whole picture, so a mouth corner is a mouth corner wherever it is.</p>
   </div>
 
   <p class="sub" style="margin-top:18px">
