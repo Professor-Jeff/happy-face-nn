@@ -98,7 +98,7 @@
   .seg button:focus-visible { outline-offset: -3px; }
   #netDialog svg .fm rect { shape-rendering: crispEdges; }
   .aug { display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 2px 0 2px; cursor: pointer; }
-  .aug input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+  .aug input { font: inherit; width: 3.4em; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); text-align: center; }
   .shift { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 10px 0 2px; }
   .shift button { margin: 0; padding: 6px 0; min-width: 40px; font-size: 1.1rem; line-height: 1; }
   .shift button.txt { font-size: .85rem; padding: 8px 10px; }
@@ -190,7 +190,7 @@
         </div>
         <span class="note" id="modelNote" style="margin:0"></span>
       </div>
-      <label class="aug" title="Data augmentation: every training face is also fed in shifted up or down by one and two rows. The exam faces are not changed."><input type="checkbox" id="augBox"> Also train on shifted copies (data augmentation)</label>
+      <label class="aug" for="augR" title="Data augmentation: every training face is also fed in shifted by up to this many cells in every direction. Copies that would push part of the face off the edge are dropped. The exam faces are not changed.">Also train on shifted copies, up to <input type="number" id="augR" min="0" max="3" step="1" value="0" aria-describedby="augNote"> cells each way <span class="note" id="augCount" style="margin:0;font-weight:400"></span></label>
       <p class="note" id="augNote" style="margin-top:0"></p>
       <button class="primary" id="trainBtn" title="Run 300 passes of gradient descent over the training set. About 3 seconds.">Train (300 epochs)</button>
       <button id="netBtn" title="Open a live picture of the network: the drawn face from step 4 going in, each hidden neuron's 100 weights as a heatmap, and the probability coming out.">Show the network</button>
@@ -283,12 +283,12 @@ dF[k][i][j] += dmap[k][r][c] · x[r+i][c+j]    summed over all r, c</pre>
         <p class="note">Try it: start from a random happy face and erase one corner of the mouth. Draw a mouth with no eyes. Draw just the eyes. Scribble. Where does your definition of happy and the network's come apart?</p>
       </div>
     </div>
-    <p class="note" style="margin-top:14px">Where the training faces live: the generator puts <b>eyes around rows 3–4</b> and the <b>mouth on rows 7–9</b>, and slides faces left or right but never up or down. Draw a smile two rows higher and the network has never seen a mouth on those pixels. A plain fully connected network has no idea that the same shape in a different place is the same thing: every pixel is a separate input. Turn on <b>shifted copies</b> in step 2 and retrain to see how much, and how little, that helps. Then switch the model to <b>Convolutional</b> and retrain: one small filter slid across the whole picture, so a mouth corner is a mouth corner wherever it is.</p>
+    <p class="note" style="margin-top:14px">Where the training faces live: the generator puts <b>eyes around rows 3–4</b> and the <b>mouth on rows 7–9</b>, and slides faces left or right but never up or down. Draw a smile two rows higher and the network has never seen a mouth on those pixels. A plain fully connected network has no idea that the same shape in a different place is the same thing: every pixel is a separate input. Turn up <b>shifted copies</b> in step 2 and retrain to see how much, and how little, that helps this model. Then switch to <b>Convolutional</b> and retrain: one small filter slid across the whole picture, so a mouth corner is a mouth corner wherever it is, and with shifted copies it handles most positions.</p>
   </div>
 
   <p class="sub" style="margin-top:18px">
     Things to notice: the network can score 100% on the training faces and still miss on the exam. If you only picked faces with big grins, narrow smiles may fail.
-    Junk gets a confident answer either way. Draw a smile two rows too high and the fully connected model fails; shifted copies help only a little, and the convolutional model usually handles it. And the <b>Show the network</b> picture tells you which pixels each hidden neuron is watching: usually the mouth corners.
+    Junk gets a confident answer either way. Draw a smile two rows too high and the fully connected model fails, with or without shifted copies; the convolutional model usually handles it, and with copies shifted up to 3 it handles most positions. And the <b>Show the network</b> picture tells you which pixels each hidden neuron is watching: usually the mouth corners.
   </p>
   <nav class="series bottom" aria-label="Neural network demo series"><a href="https://professor-jeff.github.io/tictactoe-nn/" title="Previous demo in the series">← Previous: Tic-Tac-Toe</a><span>Part 3 of 4 · neural network demos</span><a href="https://professor-jeff.github.io/learning-oracle/" title="Next demo in the series">Next: Learning Oracle →</a></nav>
 </div>
@@ -444,8 +444,9 @@ function splitData(faces, junk, pickedIds, rng) {
   return { train, test, junk: junk.map(f => ({ face: f, y: null })) };
 }
 
-// Data augmentation: the same training faces, also shifted up/down by 1-2 rows and
-// left/right by 1 column (15 copies of each). Pixels that fall off the edge are dropped.
+// Data augmentation: the same training faces, also shifted by up to `radius` cells in every
+// direction. A copy that would push any pixel off the edge is thrown away: a happy face with
+// its mouth cut off is a mislabeled example, and those hurt more than the extra copies help.
 function shifted(pixels, dx, dy) {
   const g = blank();
   for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
@@ -454,11 +455,17 @@ function shifted(pixels, dx, dy) {
   }
   return g;
 }
-const SHIFTS = [];
-for (let dy = -2; dy <= 2; dy++) for (let dx = -1; dx <= 1; dx++) SHIFTS.push([dx, dy]);
-function augment(train) {
+const inkCount = px => px.reduce((a, b) => a + b, 0);
+function augment(train, radius) {
   const out = [];
-  train.forEach(ex => SHIFTS.forEach(([dx, dy]) => out.push({ face: dx === 0 && dy === 0 ? ex.face : { kind: ex.face.kind, pixels: shifted(ex.face.pixels, dx, dy) }, y: ex.y })));
+  train.forEach(ex => {
+    for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
+      if (dx === 0 && dy === 0) { out.push(ex); continue; }
+      const px = shifted(ex.face.pixels, dx, dy);
+      if (inkCount(px) < inkCount(ex.face.pixels)) continue;                 // part of the face fell off the edge: skip it
+      out.push({ face: { kind: ex.face.kind, pixels: px }, y: ex.y });
+    }
+  });
   return out;
 }
 
@@ -796,13 +803,18 @@ function refreshAll() {
 
 function train() {
   if (training || !split) return;
-  training = true; $("trainBtn").disabled = true; $("doneBtn").disabled = true; $("newFacesBtn").disabled = true; $("resetBtn").disabled = true;
+  training = true; $("trainBtn").disabled = true; $("doneBtn").disabled = true; $("newFacesBtn").disabled = true; $("resetBtn").disabled = true; $("augR").disabled = true;
   const s = $("status"); s.className = "status"; s.textContent = "Training…";
   epochDone = 0; curve = [];
-  const augmented = $("augBox").checked, trainSet = augmented ? augment(split.train) : split.train;
-  function step() {
+  const radius = augRadius(), augmented = radius > 0, trainSet = augmented ? augment(split.train, radius) : split.train;
+  let lastFrame = 0;
+  function step(now) {
+    // 2 epochs per frame at 60 fps (about 2.5 s to watch); if frames come slowly (a background tab,
+    // a big augmented set), run more per frame so the whole run still takes about the same wall time
+    const gap = lastFrame ? now - lastFrame : 16; lastFrame = now;
+    const perFrame = Math.max(EPOCHS_PER_FRAME, Math.min(60, Math.round(gap / 8)));
     let stats;
-    for (let i = 0; i < EPOCHS_PER_FRAME && epochDone < EPOCHS; i++) { stats = model().trainEpoch(params, trainSet, LR); epochDone++; }
+    for (let i = 0; i < perFrame && epochDone < EPOCHS; i++) { stats = model().trainEpoch(params, trainSet, LR); epochDone++; }
     const testA = accuracy(model(), params, split.test);
     curve.push([epochDone / EPOCHS, stats.loss, testA]);
     $("epoch").textContent = epochDone; $("loss").textContent = stats.loss.toFixed(4);
@@ -813,8 +825,8 @@ function train() {
     else {
       training = false; trained = true;
       s.className = "status done";
-      s.textContent = "Trained (" + model().label + ") — " + (stats.acc * 100).toFixed(0) + "% on the training faces, " + (isNaN(testA) ? "no" : (testA * 100).toFixed(0) + "% on the") + " unseen faces" + (augmented ? " (trained on " + trainSet.length + " faces including shifted copies)" : "");
-      $("doneBtn").disabled = picked.size < MIN_PICKS; $("newFacesBtn").disabled = false; $("resetBtn").disabled = false;
+      s.textContent = "Trained (" + model().label + ") — " + (stats.acc * 100).toFixed(0) + "% on the training faces, " + (isNaN(testA) ? "no" : (testA * 100).toFixed(0) + "% on the") + " unseen faces" + (augmented ? " (trained on " + trainSet.length + " faces including copies shifted up to " + radius + ")" : "");
+      $("doneBtn").disabled = picked.size < MIN_PICKS; $("newFacesBtn").disabled = false; $("resetBtn").disabled = false; $("augR").disabled = false;
       $("trainBtn").disabled = false; $("trainBtn").textContent = "Train again (300 more epochs)";
       refreshAll();
     }
@@ -1059,11 +1071,13 @@ function startOver() {
   $("gallery").firstChild.focus();
 }
 
+const augRadius = () => Math.min(3, Math.max(0, Math.round(+$("augR").value) || 0));
 function updateAugNote() {
-  const n = split ? split.train.length : 0;
-  $("augNote").innerHTML = "The generator never moves faces up or down, so a plain network only learns the mouth where it saw it. This adds copies of every training face shifted up and down by 1–2 rows and sideways by 1 column" +
-    (n ? " (<b>" + n + " faces become " + n * SHIFTS.length + "</b>)" : "") + ". Exam faces stay as they are. Expect a trade: faces drawn too high pass more often, the normal exam gets a little worse, and training takes longer. " +
-    "Copies multiply the examples but not the information; a fully connected network still has to learn each position separately.";
+  const r = augRadius(), n = split ? split.train.length : 0;
+  $("augCount").textContent = n ? (r ? "(" + n + " faces become " + augment(split.train, r).length + ")" : "(off)") : "";
+  $("augNote").innerHTML = "The generator never moves faces up or down, so a plain network only learns the mouth where it saw it. Shifted copies put every training face in other positions too: " +
+    "0 is off; 3 is as far as a face can move before it hits the edge of the picture. Copies that would cut part of a face off are dropped, because a smile with no mouth is a mislabeled example. Exam faces stay as they are. " +
+    "Watch what each model does with the copies: the fully connected one still has to learn every position separately; the convolutional one shares what it learns across positions.";
 }
 function setModel(key) {
   if (training || key === modelKey) return;
@@ -1077,7 +1091,8 @@ function setModel(key) {
 }
 $("modelSeg").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setModel(b.dataset.model); });
 $("modelNote").textContent = MODELS.dense.note;
-$("augBox").addEventListener("change", () => {
+$("augR").addEventListener("input", () => {
+  updateAugNote();
   if (!split || training) return;
   params = model().init(rng); trained = false; epochDone = 0; curve = [];
   resetTrainingUi(); $("trainBtn").textContent = "Train (300 epochs)"; refreshAll();

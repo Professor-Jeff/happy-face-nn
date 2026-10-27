@@ -33,17 +33,22 @@ same picks and sit the same exam.
   8 hidden → 1 tail. 173 weights. Because the pooling forgets how high up a shape was, the
   too-high smile usually passes. **Show the network** draws the filters and their feature maps live.
 
-**Shifted copies (data augmentation).** A checkbox also trains on every training face shifted
-up/down by 1–2 rows and sideways by 1 column (15 copies each). For the fully connected model it
-helps only a little and costs exam accuracy: copies multiply the examples, not the information.
+**Shifted copies (data augmentation).** A spinner in step 2 (0 to 3, default 0) also trains on
+every training face shifted by up to that many cells in every direction. Copies that would push
+part of a face off the 10×10 edge are dropped: a smile with its mouth cut off is a mislabeled
+example, and those hurt more than the extra copies help. 3 is as far as a face can move before it
+hits the edge, so the range stops there. The live count shows how many faces the copies add.
 
-Measured over 30 random galleries with 5–8 picks each (unseen accuracy / unseen happy faces caught /
-unseen happy faces shifted up two rows caught): fully connected 82 / 65 / 33 %, with copies
-68 / 46 / 42 %; convolutional 78 / 61 / 64 %, with copies 75 / 63 / 66 %.
+Measured over 12 random galleries with 5–8 picks each (unseen accuracy / unseen happy faces caught /
+unseen happy faces shifted up two rows caught), 300 epochs:
 
-**Show the network** opens a live picture: the drawn face going in, each hidden neuron's 100
-weights as a heatmap laid out like the picture, and the probability coming out. After training,
-the heatmaps usually show the mouth corners.
+| model | radius 0 | radius 1 | radius 2 | radius 3 |
+|---|---|---|---|---|
+| fully connected | 84 / 67 / 27 % | 73 / 58 / 18 % | 73 / 57 / 40 % | 73 / 58 / 49 % |
+| convolutional | 79 / 58 / 61 % | 82 / 68 / 75 % | 83 / 68 / 73 % | 83 / 75 / 82 % |
+
+The fully connected model never gets past about half of shifted faces and always pays in exam
+accuracy; the convolutional model gains on every column.
 
 ## Where the math lives
 
