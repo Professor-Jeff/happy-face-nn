@@ -1150,5 +1150,19 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") setQr(false)
   el.addEventListener("dblclick", () => { el.style.display = "none"; });
 })();
 </script>
+<script>
+// Left / right arrow keys follow the series links. Ignored while a slider, text box, select or dialog has the keyboard.
+document.addEventListener("keydown", e => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  const t = e.target, tag = t && t.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable)) return;
+  if (document.querySelector("dialog[open]")) return;
+  const nav = document.querySelector(".series");
+  if (!nav) return;
+  const a = nav.querySelector(e.key === "ArrowRight" ? 'a[title^="Next"]' : 'a[title^="Previous"], a[title^="Back"]');
+  if (a) { e.preventDefault(); location.href = a.href; }
+});
+</script>
 </body>
 </html>
