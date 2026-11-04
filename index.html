@@ -892,6 +892,13 @@ function drawCurve() {
 }
 
 // --- step 4: draw your own ---
+// paint one pixel of the test face: updates the grid in step 4, the sheet behind it, the verdict, and the dialog if open
+function paintCell(i, v) {
+  if (drawPixels[i] === v) return;
+  drawPixels[i] = v; sheet[(vy + Math.floor(i / SIZE)) * SHEET + vx + i % SIZE] = v;
+  $("draw").children[i].setAttribute("aria-pressed", String(v === 1));
+  predictDraw();
+}
 function renderDraw() {
   const d = $("draw");
   for (let i = 0; i < N_IN; i++) {
@@ -901,7 +908,7 @@ function renderDraw() {
     d.appendChild(b);
   }
   let painting = false, paintValue = 1, lastX = 0, lastY = 0;
-  const setCell = (i, v) => { if (drawPixels[i] === v) return; drawPixels[i] = v; sheet[(vy + Math.floor(i / SIZE)) * SHEET + vx + i % SIZE] = v; d.children[i].setAttribute("aria-pressed", String(v === 1)); predictDraw(); };
+  const setCell = paintCell;
   const cellAt = (cx, cy) => { const el = document.elementFromPoint(cx, cy); return el && el.closest && el.closest("#draw button"); };
   d.addEventListener("pointerdown", e => {
     const b = e.target.closest("button"); if (!b) return;
@@ -982,6 +989,7 @@ function drawConvNetwork() {
   // the picture
   s += '<rect x="' + (gx - 1) + '" y="' + (gy - 1) + '" width="' + (cell * SIZE + 2) + '" height="' + (cell * SIZE + 2) + '" fill="#fff" style="stroke:var(--muted)"/>';
   for (let i = 0; i < N_IN; i++) if (x[i]) s += '<rect x="' + (gx + (i % SIZE) * cell) + '" y="' + (gy + Math.floor(i / SIZE) * cell) + '" width="' + cell + '" height="' + cell + '" fill="#111"/>';
+  s += '<rect class="pichit" data-gx="' + gx + '" data-gy="' + gy + '" data-cell="' + cell + '" x="' + gx + '" y="' + gy + '" width="' + (cell * SIZE) + '" height="' + (cell * SIZE) + '" fill="transparent" style="cursor:crosshair"><title>Draw here</title></rect>';
   // one row per filter: the filter, its feature map, its 4 pooled maxima
   for (let k = 0; k < N_FILT; k++) {
     const y0 = rowY(k);
@@ -1021,7 +1029,7 @@ function drawConvNetwork() {
   $("netTitle").textContent = "Inside the convolutional network, right now (" + (trained ? "trained" : training ? "training…" : "untrained") + ")";
   $("netNote").innerHTML = "<b>Each filter</b> is just 9 weights (<b class=\"sw\" style=\"background:var(--pos)\"></b>positive, <b class=\"sw\" style=\"background:var(--neg)\"></b>negative). It is slid over every 3×3 patch of the picture, and its <b>feature map</b> lights up wherever the patch matches: the same detector at every position. " +
     "<b>Max per half</b> keeps only the strongest response in the left half and in the right half of each map, so the network knows <i>whether</i> a shape appeared on the left or the right, and nothing about how high up. That is why a smile drawn too high still works. Those 12 numbers feed the same 8 hidden neurons and 1 output as the fully connected model. " +
-    "After training, look for diagonal-edge filters: a mouth corner is a diagonal, and a \\ on the left with a / on the right is a smile.";
+    "After training, look for diagonal-edge filters: a mouth corner is a diagonal, and a \\ on the left with a / on the right is a smile. Draw on the picture here (or in step 4) and everything updates.";
 }
 
 function drawDenseNetwork() {
@@ -1044,6 +1052,7 @@ function drawDenseNetwork() {
   // input: the 10×10 picture from step 4
   s += '<rect x="' + (gx - 1) + '" y="' + (gy - 1) + '" width="' + (cell * SIZE + 2) + '" height="' + (cell * SIZE + 2) + '" fill="#fff" style="stroke:var(--muted)"/>';
   for (let i = 0; i < N_IN; i++) if (x[i]) s += '<rect x="' + (gx + (i % SIZE) * cell) + '" y="' + (gy + Math.floor(i / SIZE) * cell) + '" width="' + cell + '" height="' + cell + '" fill="#111"/>';
+  s += '<rect class="pichit" data-gx="' + gx + '" data-gy="' + gy + '" data-cell="' + cell + '" x="' + gx + '" y="' + gy + '" width="' + (cell * SIZE) + '" height="' + (cell * SIZE) + '" fill="transparent" style="cursor:crosshair"><title>Draw here</title></rect>';
   // hidden: each neuron's 100 input weights as a heatmap, plus a bar for how hard it fired
   for (let j = 0; j < N_HID; j++) {
     const y0 = hy0 + j * hgap;
@@ -1075,7 +1084,7 @@ function drawDenseNetwork() {
   $("netTitle").textContent = "Inside the network, right now (" + (trained ? "trained" : training ? "training…" : "untrained") + ")";
   $("netNote").innerHTML = "<b>Input</b> is the face drawn in step 4: 100 pixels, 1 for black and 0 for white. <b>Each heatmap</b> is one hidden neuron's 100 weights laid out in the same 10×10 shape: " +
     '<b class="sw" style="background:var(--pos)"></b>positive (a black pixel here excites the neuron), <b class="sw" style="background:var(--neg)"></b>negative (a black pixel here quiets it); stronger color = bigger weight. ' +
-    "The green bar is how hard the neuron fired for this face. <b>Lines to the output</b> are the 8 weights of W2. After training, look for mouth-corner shapes in the heatmaps. Draw with this window open and it updates.";
+    "The green bar is how hard the neuron fired for this face. <b>Lines to the output</b> are the 8 weights of W2. After training, look for mouth-corner shapes in the heatmaps. Draw on the picture here (or in step 4) and everything updates.";
 }
 
 // --- reset / new faces ---
@@ -1140,6 +1149,32 @@ $("shCenter").addEventListener("click", () => { vx = HOME; vy = HOME; syncView()
 $("drawHappy").addEventListener("click", () => loadDraw(makeFace("happy", rng)));
 $("drawSad").addEventListener("click", () => loadDraw(makeFace("sad", rng)));
 $("drawNeutral").addEventListener("click", () => loadDraw(makeFace("neutral", rng)));
+// drawing on the picture inside the dialog: same pixels as step 4, so every neuron updates as you paint
+(() => {
+  const wrap = $("netSvgWrap");
+  let painting = false, value = 1, last = null;
+  const cellAt = (clientX, clientY) => {
+    const svg = wrap.querySelector("svg"), hit = svg && svg.querySelector(".pichit");
+    if (!hit) return null;
+    const pt = new DOMPoint(clientX, clientY).matrixTransform(svg.getScreenCTM().inverse());
+    const gx = +hit.dataset.gx, gy = +hit.dataset.gy, c = +hit.dataset.cell;
+    const col = Math.floor((pt.x - gx) / c), row = Math.floor((pt.y - gy) / c);
+    return col >= 0 && col < SIZE && row >= 0 && row < SIZE ? row * SIZE + col : null;
+  };
+  wrap.addEventListener("pointerdown", e => {
+    if (!e.target.closest(".pichit")) return;
+    const i = cellAt(e.clientX, e.clientY); if (i === null) return;
+    painting = true; value = drawPixels[i] ? 0 : 1; paintCell(i, value);
+    last = [e.clientX, e.clientY]; e.preventDefault();
+  });
+  wrap.addEventListener("pointermove", e => {
+    if (!painting) return;
+    const n = Math.max(1, Math.ceil(Math.hypot(e.clientX - last[0], e.clientY - last[1]) / 6));
+    for (let k = 1; k <= n; k++) { const i = cellAt(last[0] + (e.clientX - last[0]) * k / n, last[1] + (e.clientY - last[1]) * k / n); if (i !== null) paintCell(i, value); }
+    last = [e.clientX, e.clientY];
+  });
+  window.addEventListener("pointerup", () => { painting = false; });
+})();
 $("netBtn").addEventListener("click", () => { drawNetwork(); $("netDialog").showModal(); });
 $("netClose").addEventListener("click", () => $("netDialog").close());
 gridNav($("gallery"), galleryCols);
