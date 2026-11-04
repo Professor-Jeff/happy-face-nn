@@ -133,6 +133,11 @@
   .series a:hover, .series a:focus-visible { text-decoration: underline; }
   .series.bottom { margin: 28px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
   @media (max-width: 600px) { .series { flex-wrap: wrap; } .series > span { order: 3; width: 100%; text-align: center; } }
+  /* subtle 2-minute talk timer, upper right, desktop only; click restarts, double-click hides */
+  #talkTimer { position: fixed; top: 4px; right: 14px; z-index: 30; font-size: .85rem; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: .03em; color: #9ca3af; background: rgba(255,255,255,.72); padding: 4px 9px; border-radius: 999px; cursor: pointer; user-select: none; }
+  #talkTimer.warn { color: #d97706; }
+  #talkTimer.over { color: #dc2626; }
+  @media (max-width: 700px) { #talkTimer { display: none; } }
 </style>
 </head>
 <body>
@@ -1128,6 +1133,22 @@ function setQr(open) {
 }
 qrBtn.addEventListener("click", () => setQr(!qrPanel.classList.contains("open")));
 document.addEventListener("keydown", e => { if (e.key === "Escape") setQr(false); });
+</script>
+<div id="talkTimer" title="2-minute talk timer. Click to restart, double-click to hide." aria-hidden="true">2:00</div>
+<script>
+// 2-minute countdown for pacing the talk: starts on load, click restarts, double-click hides
+(() => {
+  const el = document.getElementById("talkTimer"), TOTAL = 120;
+  let t0 = Date.now();
+  const tick = () => {
+    const left = Math.max(0, TOTAL - Math.floor((Date.now() - t0) / 1000));
+    el.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+    el.className = left === 0 ? "over" : left <= 30 ? "warn" : "";
+  };
+  tick(); setInterval(tick, 250);
+  el.addEventListener("click", () => { t0 = Date.now(); tick(); });
+  el.addEventListener("dblclick", () => { el.style.display = "none"; });
+})();
 </script>
 </body>
 </html>
